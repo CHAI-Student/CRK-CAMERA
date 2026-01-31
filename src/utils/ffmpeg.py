@@ -1,0 +1,69 @@
+import asyncio
+
+
+def ffmpeg_build_command(src: str, dst: str, width: int, height: int, fps: int) -> list[str]:
+        # fmt: off
+        ffmpeg_binary = [ "./ffmpeg-8.0/bin/ffmpeg" ]
+
+        ffmpeg_options = [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+        ]
+
+        ffmpeg_input = [
+            "-f", "rawvideo",
+            "-framerate", f"{fps}",
+            "-pixel_format", "yuyv422",
+            "-video_size", f"{width}x{height}",
+            "-color_range", "full",
+            "-i", src,
+        ]
+
+        ffmpeg_output = [
+            "-f", "avi",
+            "-pixel_format", "yuv422p",
+            "-codec:v", "mjpeg",
+            "-qcomp:v", "1",
+            "-qmin:v", "2",
+            "-qmax:v", "5",
+            "-color_range", "full",
+            dst,
+        ]
+        # fmt: on
+
+        command = (
+            ffmpeg_binary
+            + ffmpeg_options
+            + ffmpeg_input
+            + ffmpeg_output
+        )
+
+        return command
+
+async def ffmpeg_start(dst: str, width: int, height: int, fps: int) -> asyncio.subprocess.Process:
+    command = ffmpeg_build_command(
+        src="pipe:0",
+        dst=dst,
+        width=width,
+        height=height,
+        fps=fps,
+    )
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    return process
+
+async def ffmpeg_stop(process: asyncio.subprocess.Process):
+    if process.stdin is not None:
+        process.stdin.close()
+    await process.wait()
+
+async def ffmpeg_feed_data(process: asyncio.subprocess.Process, frame: bytes):
+    assert process.stdin is not None
+    process.stdin.write(frame)
+    await process.stdin.drain()

@@ -5,9 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "aiosseclient>=0.1.8",
     "fastapi[standard]>=0.128.0",
+    "httpx>=0.28.1",
     "linuxpy>=0.23.0",
     "opencv-python-headless>=4.13.0.90",
+    "python-dateutil>=2.9.0.post0",
     "pyudev>=0.24.4",
 ]
 

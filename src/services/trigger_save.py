@@ -146,7 +146,7 @@ class TriggerSaveService:
         capture_service: CaptureService,
         name: str | Callable[[str], str],
         stop_timeout: float = 5.0,
-        replay_duration: float = 1.0,
+        replay_duration: float = 3.0,
     ):
         self.capture_service = capture_service
         self.name = name

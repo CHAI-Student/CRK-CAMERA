@@ -1,19 +1,15 @@
 import asyncio
-from dataclasses import dataclass
 import logging
 import os
+import time
 from abc import ABCMeta, abstractmethod
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
-import time
-from typing import Callable, Optional
+from typing import Mapping, Optional
 
 from services.capture import CaptureFrame, CaptureService
-from utils.ffmpeg import (
-    ffmpeg_feed_data,
-    ffmpeg_start,
-    ffmpeg_stop,
-)
+from utils.ffmpeg import ffmpeg_feed_data, ffmpeg_start, ffmpeg_stop
 from utils.misc import format_unix_timestamp
 
 logger = logging.getLogger(__name__)
@@ -22,7 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TriggerEvent:
     event: asyncio.Event
-    path: Path
+    paths: dict[str, Path]
 
 
 class BaseState(metaclass=ABCMeta):
@@ -43,70 +39,68 @@ class IdleState(BaseState):
     def __init__(self, save_service: "TriggerSaveService"):
         self.save_service = save_service
 
-    async def trigger(self, duration: float) -> Optional[TriggerEvent]:
-        if self.save_service.save_path is None:
-            raise RuntimeError("Save path is not set")
-        # create save filename
-        if callable(self.save_service.name):
-            save_path = self.save_service.save_path / (
-                self.save_service.name(format_unix_timestamp(time.time())) + ".avi"
+    async def trigger(self, duration: float) -> TriggerEvent:
+        assert self.save_service._save_dir is not None
+
+        capture_services = self.save_service.capture_services
+        save_dir = self.save_service._save_dir
+        timestamp = format_unix_timestamp(time.time())
+
+        save_paths = {
+            key: save_dir / timestamp / (key + ".avi")
+            for key in capture_services
+        }
+
+        for path in save_paths.values():
+            os.makedirs(path.parent, exist_ok=True)
+        
+        _ffmpeg_processes = await asyncio.gather(*[
+            ffmpeg_start(
+                dst=path.as_posix(),
+                width=cs.width,
+                height=cs.height,
+                fps=cs.fps,
             )
-        else:
-            save_path = (
-                self.save_service.save_path / (format_unix_timestamp(time.time()) + self.save_service.name + ".avi")
-            )
-        os.makedirs(save_path.parent, exist_ok=True)
+            for path, cs in zip(save_paths.values(), capture_services.values())
+        ], return_exceptions=True)
+
+        if any(isinstance(p, BaseException) for p in _ffmpeg_processes):
+            # Cleanup any started processes
+            for p in _ffmpeg_processes:
+                if isinstance(p, asyncio.subprocess.Process):
+                    await ffmpeg_stop(p)
+            raise RuntimeError("Failed to start ffmpeg processes")
+        
+        def _generator():
+            for p in _ffmpeg_processes:
+                assert isinstance(p, asyncio.subprocess.Process)
+                yield p
+        
+        ffmpeg_processes = dict(zip(save_paths.keys(), _generator()))
+
+        async def _flush(process, buffer):
+            for frame in buffer:
+                await ffmpeg_feed_data(process, frame.data)
+        
+        await asyncio.gather(*[
+            _flush(ffmpeg_processes[key], buffer)
+            for key, buffer in self.save_service._replay_buffers.items()
+        ])
+
         on_finish = asyncio.Event()
         save_until = asyncio.get_running_loop().time() + duration
-        self.save_service.state = TriggeredState(
-            self.save_service, on_finish, save_path, save_until
+
+        self.save_service._state = SavingState(
+            self.save_service, on_finish, save_until, ffmpeg_processes
         )
-        return TriggerEvent(on_finish, save_path)
+
+        return TriggerEvent(on_finish, save_paths)
 
     async def frame(self, frame: CaptureFrame) -> None:
         pass
 
     async def shutdown(self) -> None:
         pass
-
-
-class TriggeredState(BaseState):
-    def __init__(
-        self,
-        save_service: "TriggerSaveService",
-        on_finish: asyncio.Event,
-        save_path: Path,
-        save_until: float,
-    ):
-        self.save_service = save_service
-        self.on_finish = on_finish
-        self.save_path = save_path
-        self.save_until = save_until
-
-    async def trigger(self, duration: float) -> None:
-        self.save_until = max(
-            self.save_until, asyncio.get_running_loop().time() + duration
-        )
-
-    async def frame(self, frame: CaptureFrame) -> None:
-        # start saving process
-        ffmpeg_process = await ffmpeg_start(
-            dst=self.save_path.as_posix(),
-            width=self.save_service.capture_service.width,
-            height=self.save_service.capture_service.height,
-            fps=self.save_service.capture_service.fps,
-        )
-        # feed replay buffer to ffmpeg
-        for buffered_frame in self.save_service._replay_buffer:
-            await ffmpeg_feed_data(ffmpeg_process, buffered_frame.data)
-        # transition to SAVING state
-        self.save_service.state = SavingState(
-            self.save_service, self.on_finish, self.save_until, ffmpeg_process
-        )
-
-    async def shutdown(self) -> None:
-        self.on_finish.set()
-        self.save_service.state = IdleState(self.save_service)
 
 
 class SavingState(BaseState):
@@ -115,12 +109,12 @@ class SavingState(BaseState):
         save_service: "TriggerSaveService",
         on_finish: asyncio.Event,
         save_until: float,
-        ffmpeg_process: asyncio.subprocess.Process,
+        ffmpeg_processes: Mapping[str, asyncio.subprocess.Process],
     ):
         self.save_service = save_service
         self.on_finish = on_finish
         self.save_until = save_until
-        self.ffmpeg_process = ffmpeg_process
+        self.ffmpeg_processes = ffmpeg_processes
 
     async def trigger(self, duration: float) -> None:
         self.save_until = max(
@@ -128,41 +122,44 @@ class SavingState(BaseState):
         )
 
     async def frame(self, frame: CaptureFrame) -> None:
+        key = self.save_service._reverse_mapping[frame.serial]
         # continue saving
-        await ffmpeg_feed_data(self.ffmpeg_process, frame.data)
+        await ffmpeg_feed_data(self.ffmpeg_processes[key], frame.data)
         # check if we should stop saving
         if asyncio.get_running_loop().time() >= self.save_until:
             await self.shutdown()
 
     async def shutdown(self) -> None:
-        await ffmpeg_stop(self.ffmpeg_process)
+        for process in self.ffmpeg_processes.values():
+            await ffmpeg_stop(process)
         self.on_finish.set()
-        self.save_service.state = IdleState(self.save_service)
+        self.save_service._state = IdleState(self.save_service)
 
 
 class TriggerSaveService:
     def __init__(
         self,
-        capture_service: CaptureService,
-        name: str | Callable[[str], str],
+        capture_services: dict[str, CaptureService],
         stop_timeout: float = 5.0,
         replay_duration: float = 1.0,
     ):
-        self.capture_service = capture_service
-        self.name = name
+        self.capture_services = capture_services
+        self._reverse_mapping = {v.serial: k for k, v in capture_services.items()}
         self.stop_timeout = stop_timeout
 
-        self.save_path: Optional[Path] = None
-
-        self._replay_buffer: deque[CaptureFrame] = deque(
-            maxlen=int(replay_duration * capture_service.fps)
-        )
-
         self._save_task: Optional[asyncio.Task] = None
-        self._queue: asyncio.Queue[CaptureFrame] = asyncio.Queue()
 
-        self.state_lock = asyncio.Lock()
-        self.state: BaseState = IdleState(self)
+        self._queue: Optional[asyncio.Queue[CaptureFrame]] = None
+
+        self._replay_buffers: dict[str, deque[CaptureFrame]] = {
+            k: deque(maxlen=int(replay_duration * cs.fps))
+            for k, cs in capture_services.items()
+        }
+
+        self._state_lock = asyncio.Lock()
+        self._state: BaseState = IdleState(self)
+
+        self._save_dir: Optional[Path] = None
 
     async def start(self, save_path: str):
         """
@@ -178,12 +175,13 @@ class TriggerSaveService:
             logger.warning("Save service is already running")
             return
 
-        self.save_path = Path(save_path)
-        os.makedirs(self.save_path, exist_ok=True)
+        self._save_dir = Path(save_path)
+        os.makedirs(self._save_dir, exist_ok=True)
 
-        self._queue: asyncio.Queue[CaptureFrame] = asyncio.Queue()
+        self._queue = asyncio.Queue(maxsize=150) # 5 seconds at 30 fps
         self._save_task = asyncio.create_task(self._run_with_retries())
-        await self.capture_service.subscribe(self._queue)
+        for cs in self.capture_services.values():
+            await cs.subscribe(self._queue)
 
     async def stop(self):
         """
@@ -197,7 +195,8 @@ class TriggerSaveService:
 
         assert self._queue is not None
 
-        await self.capture_service.unsubscribe(self._queue)
+        for cs in self.capture_services.values():
+            await cs.unsubscribe(self._queue)
         self._queue.shutdown()
 
         try:
@@ -209,14 +208,14 @@ class TriggerSaveService:
             self._save_task.cancel()
             try:
                 await self._save_task
-            except:
+            except asyncio.CancelledError:
                 pass
         except Exception as e:
             logger.error(f"Error while stopping save service: {e}, cancelling task...")
             self._save_task.cancel()
             try:
                 await self._save_task
-            except:
+            except asyncio.CancelledError:
                 pass
         finally:
             self._save_task = None
@@ -234,8 +233,8 @@ class TriggerSaveService:
         if self._save_task is None:
             return None
 
-        async with self.state_lock:
-            return await self.state.trigger(duration)
+        async with self._state_lock:
+            return await self._state.trigger(duration)
 
     async def _run_with_retries(self):
         while True:
@@ -250,8 +249,9 @@ class TriggerSaveService:
 
     async def _run(self):
         assert self._save_task is not None
-        assert self.save_path is not None
-        self._replay_buffer.clear()
+        assert self._queue is not None
+        for buffer in self._replay_buffers.values():
+            buffer.clear()
         try:
             while True:
                 try:
@@ -259,11 +259,18 @@ class TriggerSaveService:
                 except asyncio.QueueShutDown:
                     return
                 try:
-                    self._replay_buffer.append(frame)
-                    async with self.state_lock:
-                        await self.state.frame(frame)
+                    key = self._reverse_mapping[frame.serial]
+                except KeyError:
+                    logger.warning(f"Received frame from unknown serial {frame.serial}")
+                    self._queue.task_done()
+                    continue
+                try:
+                    key = self._reverse_mapping[frame.serial]
+                    async with self._state_lock:
+                        await self._state.frame(frame)
+                        self._replay_buffers[key].append(frame)
                 finally:
                     self._queue.task_done()
         finally:
-            async with self.state_lock:
-                await self.state.shutdown()
+            async with self._state_lock:
+                await self._state.shutdown()

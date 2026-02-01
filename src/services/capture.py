@@ -36,7 +36,7 @@ class CaptureService:
         self.pixel_format = pixel_format
         self.fps = fps
 
-        self._subscribers: set[asyncio.Queue] = set()
+        self._subscribers: set[asyncio.Queue[CaptureFrame]] = set()
         self._subscribers_lock = asyncio.Lock()
         self._capture_task: Optional[asyncio.Task] = None
 
@@ -59,11 +59,11 @@ class CaptureService:
             pass
         self._capture_task = None
 
-    async def subscribe(self, queue: asyncio.Queue):
+    async def subscribe(self, queue: asyncio.Queue[CaptureFrame]):
         async with self._subscribers_lock:
             self._subscribers.add(queue)
 
-    async def unsubscribe(self, queue: asyncio.Queue):
+    async def unsubscribe(self, queue: asyncio.Queue[CaptureFrame]):
         async with self._subscribers_lock:
             self._subscribers.discard(queue)
 

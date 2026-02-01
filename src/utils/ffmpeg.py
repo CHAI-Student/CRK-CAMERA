@@ -42,6 +42,46 @@ def ffmpeg_build_command(src: str, dst: str, width: int, height: int, fps: int) 
 
         return command
 
+def ffmpeg_build_command_h264(src: str, dst: str, width: int, height: int, fps: int) -> list[str]:
+        # fmt: off
+        ffmpeg_binary = [ "./ffmpeg-8.0/bin/ffmpeg" ]
+
+        ffmpeg_options = [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+        ]
+
+        ffmpeg_input = [
+            "-f", "rawvideo",
+            "-framerate", f"{fps}",
+            "-pixel_format", "yuyv422",
+            "-video_size", f"{width}x{height}",
+            "-color_range", "full",
+            "-i", src,
+        ]
+
+        ffmpeg_output = [
+            "-f", "mp4",
+            "-pixel_format", "yuv420p",
+            "-codec:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            "-color_range", "full",
+            dst,
+        ]
+        # fmt: on
+
+        command = (
+            ffmpeg_binary
+            + ffmpeg_options
+            + ffmpeg_input
+            + ffmpeg_output
+        )
+
+        return command
+
 async def ffmpeg_start(dst: str, width: int, height: int, fps: int) -> asyncio.subprocess.Process:
     command = ffmpeg_build_command(
         src="pipe:0",
@@ -61,6 +101,7 @@ async def ffmpeg_start(dst: str, width: int, height: int, fps: int) -> asyncio.s
 async def ffmpeg_stop(process: asyncio.subprocess.Process):
     if process.stdin is not None:
         process.stdin.close()
+        await process.stdin.wait_closed()
     await process.wait()
 
 async def ffmpeg_feed_data(process: asyncio.subprocess.Process, frame: bytes):

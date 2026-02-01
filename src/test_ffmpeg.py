@@ -4,7 +4,7 @@ import logging
 import pyudev
 
 from utils.camera import run_camera
-from utils.ffmpeg import ffmpeg_build_command
+from utils.ffmpeg import ffmpeg_build_command, ffmpeg_build_command_h264
 
 
 logging.basicConfig(level=logging.INFO)
@@ -13,9 +13,11 @@ logging.basicConfig(level=logging.INFO)
 async def main():
     context = pyudev.Context()
 
-    ffmpeg_command = ffmpeg_build_command(
+    dst = "./output.mp4"
+
+    ffmpeg_command = ffmpeg_build_command_h264(
         src="pipe:0",
-        dst="./output.avi",
+        dst=dst,
         width=640,
         height=480,
         fps=30,
@@ -30,7 +32,7 @@ async def main():
         import json
         mapping: dict = json.load(f)
     
-    serial = list(mapping)[5]
+    serial = list(mapping)[0]
 
     try:
         assert process.stdin is not None
@@ -39,16 +41,17 @@ async def main():
             process.stdin.write(frame.data)
             await process.stdin.drain()
             frame_count += 1
-            if frame_count >= 30 * 10:
+            if frame_count >= 30 * 60:
                 break
     finally:
         if process.stdin is not None:
             process.stdin.close()
+            await process.stdin.wait_closed()
         await process.wait()
     
     # print saved file size
     import os
-    file_size = os.path.getsize("./output.avi")
+    file_size = os.path.getsize(dst)
     print(f"Saved file size: {file_size / (1024 * 1024):.2f} MiB")
 
 

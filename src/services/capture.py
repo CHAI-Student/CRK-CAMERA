@@ -54,7 +54,7 @@ class CaptureService:
         self._capture_task.cancel()
         try:
             await self._capture_task
-        except asyncio.CancelledError:
+        except:
             pass
         self._capture_task = None
 
@@ -67,19 +67,14 @@ class CaptureService:
             self._subscribers.discard(queue)
 
     async def _run_with_retries(self):
-        backoff = 0
-
         while True:
             try:
                 await self._run()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                logger.error(
-                    f"Error in camera {self.serial}, retrying in {backoff} seconds: {e}"
-                )
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2 if backoff else 1, 10)
+                logger.error(f"Error in camera {self.serial}: {e}")
+                await asyncio.sleep(1)
 
     async def _run(self):
         camera = run_camera(

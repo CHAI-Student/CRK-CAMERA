@@ -4,7 +4,8 @@ import os
 from abc import ABCMeta, abstractmethod
 from collections import deque
 from pathlib import Path
-from typing import Optional
+import time
+from typing import Callable, Optional
 
 from services.capture import CaptureFrame, CaptureService
 from utils.ffmpeg import (
@@ -69,10 +70,18 @@ class TriggeredState(BaseState):
     async def frame(self, frame: CaptureFrame) -> None:
         if self.save_service.save_path is None:
             raise RuntimeError("Save path is not set")
+        save_path = self.save_service.save_path
+        name = self.save_service.name
         # create save filename
-        save_filename = self.save_service.save_path / (
-            format_unix_timestamp(frame.timestamp) + ".avi"
-        )
+        if callable(name):
+            save_filename = save_path / (
+                name(format_unix_timestamp(time.time())) + ".avi"
+            )
+        else:
+            save_filename = (
+                save_path / (format_unix_timestamp(time.time()) + name + ".mp4")
+            )
+        os.makedirs(save_filename.parent, exist_ok=True)
         # start saving process
         ffmpeg_process = await ffmpeg_start(
             dst=save_filename.as_posix(),
@@ -128,10 +137,12 @@ class TriggerSaveService:
     def __init__(
         self,
         capture_service: CaptureService,
-        replay_duration: float = 1.0,
+        name: str | Callable[[str], str],
         stop_timeout: float = 5.0,
+        replay_duration: float = 1.0,
     ):
         self.capture_service = capture_service
+        self.name = name
         self.stop_timeout = stop_timeout
 
         self.save_path: Optional[Path] = None

@@ -4,7 +4,7 @@ import logging
 import pyudev
 
 from utils.camera import run_camera
-from utils.ffmpeg import ffmpeg_build_command, ffmpeg_build_command_h264
+from utils.ffmpeg import ffmpeg_build_command_mjpeg, ffmpeg_build_command_h264
 
 
 logging.basicConfig(level=logging.INFO)

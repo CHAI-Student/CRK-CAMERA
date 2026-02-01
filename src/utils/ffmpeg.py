@@ -1,7 +1,8 @@
 import asyncio
+from typing import Literal
 
 
-def ffmpeg_build_command(src: str, dst: str, width: int, height: int, fps: int) -> list[str]:
+def ffmpeg_build_command_mjpeg(src: str, dst: str, width: int, height: int, fps: int) -> list[str]:
         # fmt: off
         ffmpeg_binary = [ "./ffmpeg-8.0/bin/ffmpeg" ]
 
@@ -82,14 +83,25 @@ def ffmpeg_build_command_h264(src: str, dst: str, width: int, height: int, fps: 
 
         return command
 
-async def ffmpeg_start(dst: str, width: int, height: int, fps: int) -> asyncio.subprocess.Process:
-    command = ffmpeg_build_command(
-        src="pipe:0",
-        dst=dst,
-        width=width,
-        height=height,
-        fps=fps,
-    )
+async def ffmpeg_start(dst: str, width: int, height: int, fps: int, encoder: Literal["mjpeg", "h264"] = "mjpeg") -> asyncio.subprocess.Process:
+    if encoder == "mjpeg":
+        command = ffmpeg_build_command_mjpeg(
+            src="pipe:0",
+            dst=dst,
+            width=width,
+            height=height,
+            fps=fps,
+        )
+    elif encoder == "h264":
+        command = ffmpeg_build_command_h264(
+            src="pipe:0",
+            dst=dst,
+            width=width,
+            height=height,
+            fps=fps,
+        )
+    else:
+        raise ValueError(f"Unsupported encoder: {encoder}")
     process = await asyncio.create_subprocess_exec(
         *command,
         stdin=asyncio.subprocess.PIPE,

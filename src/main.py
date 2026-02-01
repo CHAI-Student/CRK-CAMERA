@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from api.v1.routers import management, recording
 from services.capture import CaptureService
+from services.save import SaveService
 from services.trigger_save import TriggerSaveService
 from utils.misc import read_json_file
 
@@ -23,13 +24,21 @@ async def lifespan(app: FastAPI):
         await capture_service.start()
         capture_services[value] = capture_service
     app.state.capture_services = capture_services
+
+    save_services: dict[int, SaveService] = {}
+    for key, value in capture_services.items():
+        if key != 0:
+            continue
+        save_service = SaveService(value, name="")
+        save_services[key] = save_service
+    app.state.save_services = save_services
     
     trigger_save_services: dict[int, tuple[TriggerSaveService, TriggerSaveService]] = {}
     for key, value in capture_services.items():
         if key == 0:
             continue
-        trigger_save_service_top_camera = TriggerSaveService(capture_services[0])
-        trigger_save_service_side_camera = TriggerSaveService(value)
+        trigger_save_service_top_camera = TriggerSaveService(capture_services[0], name="/top")
+        trigger_save_service_side_camera = TriggerSaveService(value, name="/side")
         trigger_save_services[key] = (trigger_save_service_top_camera, trigger_save_service_side_camera)
     app.state.trigger_save_services = trigger_save_services
     

@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 import logging
 import os
 from abc import ABCMeta, abstractmethod
@@ -18,9 +19,15 @@ from utils.misc import format_unix_timestamp
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class TriggerEvent:
+    event: asyncio.Event
+    path: Path
+
+
 class BaseState(metaclass=ABCMeta):
     @abstractmethod
-    async def trigger(self, duration: float) -> Optional[asyncio.Event]:
+    async def trigger(self, duration: float) -> Optional[TriggerEvent]:
         pass
 
     @abstractmethod
@@ -36,13 +43,25 @@ class IdleState(BaseState):
     def __init__(self, save_service: "TriggerSaveService"):
         self.save_service = save_service
 
-    async def trigger(self, duration: float) -> asyncio.Event:
+    async def trigger(self, duration: float) -> Optional[TriggerEvent]:
+        if self.save_service.save_path is None:
+            raise RuntimeError("Save path is not set")
+        # create save filename
+        if callable(self.save_service.name):
+            save_path = self.save_service.save_path / (
+                self.save_service.name(format_unix_timestamp(time.time())) + ".avi"
+            )
+        else:
+            save_path = (
+                self.save_service.save_path / (format_unix_timestamp(time.time()) + self.save_service.name + ".avi")
+            )
+        os.makedirs(save_path.parent, exist_ok=True)
         on_finish = asyncio.Event()
         save_until = asyncio.get_running_loop().time() + duration
         self.save_service.state = TriggeredState(
-            self.save_service, on_finish, save_until
+            self.save_service, on_finish, save_path, save_until
         )
-        return on_finish
+        return TriggerEvent(on_finish, save_path)
 
     async def frame(self, frame: CaptureFrame) -> None:
         pass
@@ -56,10 +75,12 @@ class TriggeredState(BaseState):
         self,
         save_service: "TriggerSaveService",
         on_finish: asyncio.Event,
+        save_path: Path,
         save_until: float,
     ):
         self.save_service = save_service
         self.on_finish = on_finish
+        self.save_path = save_path
         self.save_until = save_until
 
     async def trigger(self, duration: float) -> None:
@@ -68,23 +89,9 @@ class TriggeredState(BaseState):
         )
 
     async def frame(self, frame: CaptureFrame) -> None:
-        if self.save_service.save_path is None:
-            raise RuntimeError("Save path is not set")
-        save_path = self.save_service.save_path
-        name = self.save_service.name
-        # create save filename
-        if callable(name):
-            save_filename = save_path / (
-                name(format_unix_timestamp(time.time())) + ".avi"
-            )
-        else:
-            save_filename = (
-                save_path / (format_unix_timestamp(time.time()) + name + ".avi")
-            )
-        os.makedirs(save_filename.parent, exist_ok=True)
         # start saving process
         ffmpeg_process = await ffmpeg_start(
-            dst=save_filename.as_posix(),
+            dst=self.save_path.as_posix(),
             width=self.save_service.capture_service.width,
             height=self.save_service.capture_service.height,
             fps=self.save_service.capture_service.fps,
@@ -214,7 +221,7 @@ class TriggerSaveService:
         finally:
             self._save_task = None
 
-    async def trigger(self, duration: float) -> Optional[asyncio.Event]:
+    async def trigger(self, duration: float) -> Optional[TriggerEvent]:
         """
         Trigger saving video for the specified duration.
 

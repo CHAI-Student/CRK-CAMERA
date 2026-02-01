@@ -65,9 +65,9 @@ def ffmpeg_build_command_h264(src: str, dst: str, width: int, height: int, fps: 
 
         ffmpeg_output = [
             "-f", "mp4",
-            "-pixel_format", "yuv420p",
             "-codec:v", "libx264",
-            "-preset", "ultrafast",
+            "-preset", "veryfast",
+            "-pixel_format", "yuv420p",
             "-crf", "23",
             "-color_range", "full",
             dst,

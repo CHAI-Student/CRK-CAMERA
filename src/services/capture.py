@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CaptureFrame:
+    serial: str
     data: bytes
     timestamp: float
     frame_nb: int
@@ -95,6 +96,7 @@ class CaptureService:
                 continue
             # Prepare the item to send to subscribers
             frame_data = CaptureFrame(
+                self.serial,
                 frame.data[:],
                 frame.timestamp,
                 frame.frame_nb,

@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from api.v1.routers import management, recording
 from services.capture import CaptureService
+from services.loadcell import LoadcellService
 from services.save import SaveService
 from services.trigger_save import TriggerSaveService
 from utils.misc import read_json_file
@@ -41,6 +42,12 @@ async def lifespan(app: FastAPI):
         trigger_save_service_side_camera = TriggerSaveService(value, name="/side")
         trigger_save_services[key] = (trigger_save_service_top_camera, trigger_save_service_side_camera)
     app.state.trigger_save_services = trigger_save_services
+
+    loadcell_service = LoadcellService(
+        sse_url="http://localhost:8000/sse?streams=loadcells&filter_method=exponential&filter_alpha=0.8&threshold=2",
+        trigger_save_services=trigger_save_services,
+    )
+    app.state.loadcell_service = loadcell_service
     
     app.state.events = {}
 

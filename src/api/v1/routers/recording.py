@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from services.loadcell import LoadcellService
 from services.save import SaveService
 from services.trigger_save import TriggerSaveService
 
@@ -23,6 +24,9 @@ async def start_recording(request: Request, body: RecordingStartRequest):
     for key, (top_service, side_service) in trigger_save_services.items():
         await top_service.start(f"{body.save_path}/inference/zone_{key}")
         await side_service.start(f"{body.save_path}/inference/zone_{key}")
+    
+    loadcell_service: LoadcellService = request.app.state.loadcell_service
+    await loadcell_service.start()
 
     return {"status": "recording started"}
 
@@ -35,6 +39,9 @@ async def stop_recording(request: Request):
     for key, (top_service, side_service) in trigger_save_services.items():
         await top_service.stop()
         await side_service.stop()
+
+    loadcell_service: LoadcellService = request.app.state.loadcell_service
+    await loadcell_service.stop()
 
     save_services: dict[int, SaveService] = request.app.state.save_services
     for key, service in save_services.items():

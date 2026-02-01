@@ -27,17 +27,48 @@ class LoadcellService:
         self._event_tasks = []
 
     async def start(self):
-        pass
+        if self._loadcell_task is not None:
+            logger.warning("LoadcellService is already running")
+            return
+        self._loadcell_history.clear()
+        self._loadcell_task = asyncio.create_task(self._run())
+        logger.info("LoadcellService started")
 
     async def stop(self):
-        pass
+        if self._loadcell_task is None:
+            logger.warning("LoadcellService is not running")
+            return
+        self._loadcell_task.cancel()
+        try:
+            await self._loadcell_task
+        except asyncio.CancelledError:
+            pass
+        self._loadcell_task = None
+        
+        # Cancel all pending event tasks
+        for task in self._event_tasks:
+            if not task.done():
+                task.cancel()
+        
+        # Wait for all tasks to complete cancellation
+        if self._event_tasks:
+            await asyncio.gather(*self._event_tasks, return_exceptions=True)
+        
+        self._event_tasks.clear()
+        logger.info("LoadcellService stopped")
 
     async def _run(self):
-        async for event in aiosseclient(self.sse_url):
-            if event.event == "loadcell.update":
-                await self._handle_loadcell_update(event)
-            elif event.event == "loadcell.change":
-                await self._handle_loadcell_change(event)
+        try:
+            async for event in aiosseclient(self.sse_url):
+                if event.event == "loadcell.update":
+                    await self._handle_loadcell_update(event)
+                elif event.event == "loadcell.change":
+                    await self._handle_loadcell_change(event)
+        except asyncio.CancelledError:
+            logger.info("LoadcellService._run cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in LoadcellService._run: {e}", exc_info=True)
 
     async def _handle_loadcell_update(self, event: Event):
         data = json.loads(event.data)
@@ -57,13 +88,14 @@ class LoadcellService:
                     await trigger_save_service[0].trigger(5.0),
                     await trigger_save_service[1].trigger(5.0),
                 )
-                if not any(events):
+                # Both events must be present to proceed
+                if events[0] is None or events[1] is None:
+                    logger.warning(
+                        f"Zone {zone}: Missing trigger events (top={events[0] is not None}, "
+                        f"side={events[1] is not None})"
+                    )
                     continue
-                if events[0] is not None or events[1] is not None:
-                    # THIS MAY CAUSE RACE CONDITION IF TWO LOADCELLS TRIGGER
-                    logger.error("RACE CONDITION DETECTED IN LOADCELL SERVICE")
-                    continue
-                assert events[0] is not None and events[1] is not None
+                
                 event_task = asyncio.create_task(
                     self._wait_events_and_submit(
                         events, timestamp=data["timestamp_float"], zone=zone
@@ -78,14 +110,22 @@ class LoadcellService:
             if event is not None:
                 await event.event.wait()
 
-        loadcells_index = (
-            bisect.bisect_right(
-                self._loadcell_history,
-                timestamp - 1,
-                key=lambda x: x["timestamp_float"],
+        # Find the index of the first entry at or after (timestamp - 1)
+        loadcells_index = bisect.bisect_right(
+            self._loadcell_history,
+            timestamp - 1,
+            key=lambda x: x["timestamp_float"],
+        ) - 1
+        
+        # Ensure we have valid history data
+        if loadcells_index < 0:
+            logger.warning(
+                f"Zone {zone}: No loadcell history data found before timestamp {timestamp}"
             )
-            - 1
-        )
+            return
+        
+        if loadcells_index >= len(self._loadcell_history):
+            loadcells_index = len(self._loadcell_history) - 1
 
         zone_index = (zone - 1) * 2
 
@@ -98,11 +138,14 @@ class LoadcellService:
             }
             for entry in self._loadcell_history[loadcells_index:]
         ]
+        
+        # Cast to guarantee non-None (we verified this in _handle_loadcell_change)
+        top_event = events[0]
+        side_event = events[1]
+        assert top_event is not None and side_event is not None
 
-        assert events[0] is not None and events[1] is not None
-
-        top_path = events[0].path
-        side_path = events[1].path
+        top_path = top_event.path
+        side_path = side_event.path
 
         # send these data to server
         async with httpx.AsyncClient(timeout=30.0) as client:

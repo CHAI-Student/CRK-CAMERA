@@ -79,7 +79,7 @@ class TriggeredState(BaseState):
             )
         else:
             save_filename = (
-                save_path / (format_unix_timestamp(time.time()) + name + ".mp4")
+                save_path / (format_unix_timestamp(time.time()) + name + ".avi")
             )
         os.makedirs(save_filename.parent, exist_ok=True)
         # start saving process

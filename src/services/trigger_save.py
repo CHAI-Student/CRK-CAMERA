@@ -12,7 +12,7 @@ from utils.ffmpeg import (
     ffmpeg_start,
     ffmpeg_stop,
 )
-from utils.misc import unix_timestamp_to_iso8601
+from utils.misc import format_unix_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class TriggeredState(BaseState):
             raise RuntimeError("Save path is not set")
         # create save filename
         save_filename = self.save_service.save_path / (
-            unix_timestamp_to_iso8601(frame.timestamp) + ".avi"
+            format_unix_timestamp(frame.timestamp) + ".avi"
         )
         # start saving process
         ffmpeg_process = await ffmpeg_start(
@@ -182,21 +182,23 @@ class TriggerSaveService:
         await self.capture_service.unsubscribe(self._queue)
         self._queue.shutdown()
 
-        async def _cleanup_procedure(q, t):
-            await q.join()
-            await t
-
         try:
-            await asyncio.wait_for(
-                _cleanup_procedure(self._queue, self._save_task),
-                timeout=self.stop_timeout,
-            )
+            async with asyncio.timeout(self.stop_timeout):
+                await self._queue.join()
+                await self._save_task
         except asyncio.TimeoutError:
             logger.warning("Timeout while stopping save service, cancelling task")
             self._save_task.cancel()
             try:
                 await self._save_task
-            except asyncio.CancelledError:
+            except:
+                pass
+        except Exception as e:
+            logger.error(f"Error while stopping save service: {e}, cancelling task...")
+            self._save_task.cancel()
+            try:
+                await self._save_task
+            except:
                 pass
         finally:
             self._save_task = None
@@ -221,6 +223,7 @@ class TriggerSaveService:
         while True:
             try:
                 await self._run()
+                return
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -236,7 +239,7 @@ class TriggerSaveService:
                 try:
                     frame = await self._queue.get()
                 except asyncio.QueueShutDown:
-                    break
+                    return
                 try:
                     self._replay_buffer.append(frame)
                     async with self.state_lock:

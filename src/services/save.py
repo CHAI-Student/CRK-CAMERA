@@ -16,7 +16,7 @@ class SaveService:
     def __init__(
         self,
         capture_service: CaptureService,
-        name: str | Callable[[str], str],
+        name: str,
         stop_timeout: float = 5.0,
     ):
         self.capture_service = capture_service
@@ -32,23 +32,16 @@ class SaveService:
             logger.warning("SaveService is already started")
             return
 
-        path = Path(save_path)
-        if callable(self.name):
-            save_filename = path / (
-                self.name(format_unix_timestamp(time.time())) + ".mp4"
-            )
-        else:
-            save_filename = (
-                path / (format_unix_timestamp(time.time()) + self.name + ".mp4")
-            )
-        os.makedirs(save_filename.parent, exist_ok=True)
+        path = Path(save_path) / (format_unix_timestamp(time.time()) + self.name + ".mp4")
+        os.makedirs(path.parent, exist_ok=True)
 
         process = await ffmpeg_start(
-            dst=save_filename.as_posix(),
+            dst=path.as_posix(),
             width=self.capture_service.width,
             height=self.capture_service.height,
             fps=self.capture_service.fps,
             encoder="h264",
+            log_path=path.with_suffix(".log").as_posix(),
         )
         self._ffmpeg_process = process
 

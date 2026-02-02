@@ -1,5 +1,5 @@
 import asyncio
-from typing import Literal
+from typing import Literal, Optional
 
 
 def ffmpeg_build_command_mjpeg(src: str, dst: str, width: int, height: int, fps: int) -> list[str]:
@@ -83,7 +83,7 @@ def ffmpeg_build_command_h264(src: str, dst: str, width: int, height: int, fps: 
 
         return command
 
-async def ffmpeg_start(dst: str, width: int, height: int, fps: int, encoder: Literal["mjpeg", "h264"] = "mjpeg") -> asyncio.subprocess.Process:
+async def ffmpeg_start(dst: str, width: int, height: int, fps: int, encoder: Literal["mjpeg", "h264"] = "mjpeg", log_path: Optional[str] = None) -> asyncio.subprocess.Process:
     if encoder == "mjpeg":
         command = ffmpeg_build_command_mjpeg(
             src="pipe:0",
@@ -105,8 +105,8 @@ async def ffmpeg_start(dst: str, width: int, height: int, fps: int, encoder: Lit
     process = await asyncio.create_subprocess_exec(
         *command,
         stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.DEVNULL if log_path is None else open(log_path, "a"),
+        stderr=asyncio.subprocess.DEVNULL if log_path is None else open(log_path, "a"),
     )
     return process
 

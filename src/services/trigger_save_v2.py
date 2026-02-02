@@ -60,6 +60,7 @@ class IdleState(BaseState):
                 width=cs.width,
                 height=cs.height,
                 fps=cs.fps,
+                log_path=path.with_suffix(".log").as_posix(),
             )
             for path, cs in zip(save_paths.values(), capture_services.values())
         ], return_exceptions=True)

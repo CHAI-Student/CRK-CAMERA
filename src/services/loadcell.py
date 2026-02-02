@@ -111,13 +111,10 @@ class LoadcellService:
         await event.event.wait()
 
         # Find the index of the first entry at or after (timestamp - 1)
-        loadcells_index = (
-            bisect.bisect_right(
-                self._loadcell_history,
-                timestamp - 1,
-                key=lambda x: x["timestamp_float"],
-            )
-            - 1
+        loadcells_index = bisect.bisect_left(
+            self._loadcell_history,
+            timestamp - 1,
+            key=lambda x: x["timestamp_float"],
         )
 
         # Ensure we have valid history data

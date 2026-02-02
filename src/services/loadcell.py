@@ -2,7 +2,7 @@ import asyncio
 import bisect
 import json
 import logging
-from typing import Optional, Sequence
+from typing import Optional
 
 import httpx
 from aiosseclient import Event, aiosseclient
@@ -17,7 +17,7 @@ class LoadcellService:
     def __init__(
         self,
         sse_url: str,
-        trigger_save_services: dict[int, tuple[TriggerSaveService, TriggerSaveService]],
+        trigger_save_services: dict[int, TriggerSaveService],
     ):
         self.sse_url = sse_url
         self.trigger_save_services = trigger_save_services
@@ -44,16 +44,16 @@ class LoadcellService:
         except asyncio.CancelledError:
             pass
         self._loadcell_task = None
-        
+
         # Cancel all pending event tasks
         for task in self._event_tasks:
             if not task.done():
                 task.cancel()
-        
+
         # Wait for all tasks to complete cancellation
         if self._event_tasks:
             await asyncio.gather(*self._event_tasks, return_exceptions=True)
-        
+
         self._event_tasks.clear()
         logger.info("LoadcellService stopped")
 
@@ -68,7 +68,9 @@ class LoadcellService:
             logger.info("LoadcellService._run cancelled")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error in LoadcellService._run: {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error in LoadcellService._run: {e}", exc_info=True
+            )
 
     async def _handle_loadcell_update(self, event: Event):
         data = json.loads(event.data)
@@ -84,46 +86,47 @@ class LoadcellService:
         for zone in affected_zones:
             trigger_save_service = self.trigger_save_services.get(zone)
             if trigger_save_service:
-                events = (
-                    await trigger_save_service[0].trigger(5.0),
-                    await trigger_save_service[1].trigger(5.0),
-                )
+                trigger_event = await trigger_save_service.trigger(5.0)
                 # Both events must be present to proceed
-                if events[0] is None or events[1] is None:
-                    logger.warning(
-                        f"Zone {zone}: Missing trigger events (top={events[0] is not None}, "
-                        f"side={events[1] is not None})"
+                if trigger_event is None:
+                    logger.info(
+                        f"Zone {zone}: No trigger event returned (i.e. session already active; extending)"
                     )
                     continue
-                
-                event_task = asyncio.create_task(
-                    self._wait_events_and_submit(
-                        events, timestamp=data["timestamp_float"], zone=zone
+
+                trigger_event_task = asyncio.create_task(
+                    self._wait_event_and_submit(
+                        event=trigger_event,
+                        timestamp=data["timestamp_float"],
+                        zone=zone,
                     )
                 )
-                self._event_tasks.append(event_task)
+                self._event_tasks.append(trigger_event_task)
 
-    async def _wait_events_and_submit(
-        self, events: Sequence[Optional[TriggerEvent]], timestamp: float, zone: int
+    async def _wait_event_and_submit(
+        self, event: Optional[TriggerEvent], timestamp: float, zone: int
     ):
-        for event in events:
-            if event is not None:
-                await event.event.wait()
+        assert event is not None
+
+        await event.event.wait()
 
         # Find the index of the first entry at or after (timestamp - 1)
-        loadcells_index = bisect.bisect_right(
-            self._loadcell_history,
-            timestamp - 1,
-            key=lambda x: x["timestamp_float"],
-        ) - 1
-        
+        loadcells_index = (
+            bisect.bisect_right(
+                self._loadcell_history,
+                timestamp - 1,
+                key=lambda x: x["timestamp_float"],
+            )
+            - 1
+        )
+
         # Ensure we have valid history data
         if loadcells_index < 0:
             logger.warning(
                 f"Zone {zone}: No loadcell history data found before timestamp {timestamp}"
             )
             return
-        
+
         if loadcells_index >= len(self._loadcell_history):
             loadcells_index = len(self._loadcell_history) - 1
 
@@ -138,14 +141,6 @@ class LoadcellService:
             }
             for entry in self._loadcell_history[loadcells_index:]
         ]
-        
-        # Cast to guarantee non-None (we verified this in _handle_loadcell_change)
-        top_event = events[0]
-        side_event = events[1]
-        assert top_event is not None and side_event is not None
-
-        top_path = top_event.path
-        side_path = side_event.path
 
         # send these data to server
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -156,8 +151,8 @@ class LoadcellService:
                         "zone": zone,
                         "loadcells": loadcells_data,
                         "videos": {
-                            "top": top_path.as_posix(),
-                            "side": side_path.as_posix(),
+                            "top": event.paths["top"].as_posix(),
+                            "side": event.paths["side"].as_posix(),
                         },
                     },
                 )

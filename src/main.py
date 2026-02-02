@@ -33,14 +33,18 @@ async def lifespan(app: FastAPI):
         save_service = SaveService(value, name="")
         save_services[key] = save_service
     app.state.save_services = save_services
-    
-    trigger_save_services: dict[int, tuple[TriggerSaveService, TriggerSaveService]] = {}
+
+    trigger_save_services: dict[int, TriggerSaveService] = {}
     for key, value in capture_services.items():
         if key == 0:
             continue
-        trigger_save_service_top_camera = TriggerSaveService(capture_services[0], name="/top")
-        trigger_save_service_side_camera = TriggerSaveService(value, name="/side")
-        trigger_save_services[key] = (trigger_save_service_top_camera, trigger_save_service_side_camera)
+        trigger_save_service = TriggerSaveService(
+            {
+                "top": capture_services[0],
+                "side": value,
+            }
+        )
+        trigger_save_services[key] = trigger_save_service
     app.state.trigger_save_services = trigger_save_services
 
     loadcell_service = LoadcellService(
@@ -53,9 +57,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    for top_service, side_service in app.state.trigger_save_services.values():
-        await top_service.stop()
-        await side_service.stop()
+    for service in app.state.save_services.values():
+        await service.stop()
 
     for service in app.state.capture_services.values():
         await service.stop()

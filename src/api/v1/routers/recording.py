@@ -22,7 +22,7 @@ async def start_recording(request: Request, body: RecordingStartRequest):
         request.app.state.trigger_save_services
     )
     for key, service in trigger_save_services.items():
-        await service.start(f"{body.save_path}/inference/zone_{key}")
+        await service.start_session(f"{body.save_path}/inference/zone_{key}")
     
     loadcell_service: LoadcellService = request.app.state.loadcell_service
     await loadcell_service.start()
@@ -36,7 +36,7 @@ async def stop_recording(request: Request):
         request.app.state.trigger_save_services
     )
     for key, service in trigger_save_services.items():
-        await service.stop()
+        await service.stop_session()
 
     loadcell_service: LoadcellService = request.app.state.loadcell_service
     await loadcell_service.stop()

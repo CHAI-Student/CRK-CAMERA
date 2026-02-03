@@ -38,28 +38,16 @@ class BaseState(metaclass=ABCMeta):
 class IdleState(BaseState):
     def __init__(self, save_service: "TriggerSaveService"):
         self.save_service = save_service
-    
-    async def trigger(self, duration: float) -> None:
-        pass
-    
-    async def frame(self, frame: CaptureFrame) -> None:
-        pass
-    
-    async def shutdown(self) -> None:
-        pass
-
-
-class ListeningState(BaseState):
-    def __init__(self, save_service: "TriggerSaveService", save_directory: Path):
-        self.save_service = save_service
-        self.save_directory = save_directory
 
     async def trigger(self, duration: float) -> TriggerEvent:
+        assert self.save_service._save_dir is not None
+
         capture_services = self.save_service.capture_services
+        save_dir = self.save_service._save_dir
         timestamp = format_unix_timestamp(time.time())
 
         save_paths = {
-            key: self.save_directory / timestamp / (key + ".avi")
+            key: save_dir / timestamp / (key + ".avi")
             for key in capture_services
         }
 
@@ -104,7 +92,7 @@ class ListeningState(BaseState):
         save_until = asyncio.get_running_loop().time() + duration
 
         self.save_service._state = SavingState(
-            self.save_service, self.save_directory, on_finish, save_until, ffmpeg_processes
+            self.save_service, on_finish, save_until, ffmpeg_processes
         )
 
         return TriggerEvent(on_finish, save_paths)
@@ -120,13 +108,11 @@ class SavingState(BaseState):
     def __init__(
         self,
         save_service: "TriggerSaveService",
-        save_directory: Path,
         on_finish: asyncio.Event,
         save_until: float,
         ffmpeg_processes: Mapping[str, asyncio.subprocess.Process],
     ):
         self.save_service = save_service
-        self.save_directory = save_directory
         self.on_finish = on_finish
         self.save_until = save_until
         self.ffmpeg_processes = ffmpeg_processes
@@ -148,7 +134,7 @@ class SavingState(BaseState):
         for process in self.ffmpeg_processes.values():
             await ffmpeg_stop(process)
         self.on_finish.set()
-        self.save_service._state = ListeningState(self.save_service, self.save_directory)
+        self.save_service._state = IdleState(self.save_service)
 
 
 class TriggerSaveService:
@@ -173,22 +159,31 @@ class TriggerSaveService:
 
         self._state_lock = asyncio.Lock()
         self._state: BaseState = IdleState(self)
-    
-    async def start(self):
+
+        self._save_dir: Optional[Path] = None
+
+    async def start(self, save_path: str):
         """
         Start the save service.
 
         :param self: The SaveService instance
+        :param save_path: The path where the video will be saved
+        :type save_path: str
+
+        :raises OSError: If the save directory cannot be created
         """
         if self._save_task is not None:
             logger.warning("Save service is already running")
             return
-        
-        self._queue = asyncio.Queue(maxsize=90)
+
+        self._save_dir = Path(save_path)
+        os.makedirs(self._save_dir, exist_ok=True)
+
+        self._queue = asyncio.Queue(maxsize=150) # 5 seconds at 30 fps
         self._save_task = asyncio.create_task(self._run_with_retries())
         for cs in self.capture_services.values():
             await cs.subscribe(self._queue)
-    
+
     async def stop(self):
         """
         Stop the save service.
@@ -224,52 +219,7 @@ class TriggerSaveService:
             except asyncio.CancelledError:
                 pass
         finally:
-            async with self._state_lock:
-                self._state = IdleState(self)
             self._save_task = None
-
-    async def start_session(self, save_path: str):
-        """
-        Start the save session.
-
-        :param self: The SaveService instance
-        :param save_path: The path where the video will be saved
-        :type save_path: str
-
-        :raises OSError: If the save directory cannot be created
-        """
-        if self._save_task is None:
-            logger.warning("Save service is not running")
-            return
-        
-        async with self._state_lock:
-            if not isinstance(self._state, IdleState):
-                logger.warning("Save service is already in a session")
-                return
-            
-            save_directory = Path(save_path)
-            os.makedirs(save_directory, exist_ok=True)
-
-            self._state = ListeningState(self, save_directory)
-
-    async def stop_session(self):
-        """
-        Stop the save session.
-
-        :param self: The SaveService instance
-        """
-        if self._save_task is None:
-            logger.warning("Save service is not running")
-            return
-        
-        async with self._state_lock:
-            if isinstance(self._state, IdleState):
-                logger.warning("Save service is not in a session")
-                return
-            
-            await self._state.shutdown()
-            
-            self._state = IdleState(self)
 
     async def trigger(self, duration: float) -> Optional[TriggerEvent]:
         """
@@ -283,7 +233,7 @@ class TriggerSaveService:
         """
         if self._save_task is None:
             return None
-        
+
         async with self._state_lock:
             return await self._state.trigger(duration)
 
@@ -316,6 +266,7 @@ class TriggerSaveService:
                     self._queue.task_done()
                     continue
                 try:
+                    key = self._reverse_mapping[frame.serial]
                     async with self._state_lock:
                         await self._state.frame(frame)
                         self._replay_buffers[key].append(frame)

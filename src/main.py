@@ -47,6 +47,7 @@ async def lifespan(app: FastAPI):
                 "side": value,
             }
         )
+        await trigger_save_service.start()
         trigger_save_services[key] = trigger_save_service
     app.state.trigger_save_services = trigger_save_services
 

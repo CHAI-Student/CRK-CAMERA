@@ -142,7 +142,7 @@ class TriggerSaveService:
         self,
         capture_services: dict[str, CaptureService],
         stop_timeout: float = 5.0,
-        replay_duration: float = 1.0,
+        replay_duration: float = 3.0,
     ):
         self.capture_services = capture_services
         self._reverse_mapping = {v.serial: k for k, v in capture_services.items()}

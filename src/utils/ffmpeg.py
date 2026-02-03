@@ -8,8 +8,7 @@ def ffmpeg_build_command_mjpeg(src: str, dst: str, width: int, height: int, fps:
 
         ffmpeg_options = [
             "-hide_banner",
-            "-loglevel",
-            "error",
+            "-loglevel", "error",
             "-y",
         ]
 
@@ -18,7 +17,6 @@ def ffmpeg_build_command_mjpeg(src: str, dst: str, width: int, height: int, fps:
             "-framerate", f"{fps}",
             "-pixel_format", "yuyv422",
             "-video_size", f"{width}x{height}",
-            "-color_range", "full",
             "-i", src,
         ]
 
@@ -29,7 +27,6 @@ def ffmpeg_build_command_mjpeg(src: str, dst: str, width: int, height: int, fps:
             "-qcomp:v", "1",
             "-qmin:v", "2",
             "-qmax:v", "5",
-            "-color_range", "full",
             dst,
         ]
         # fmt: on
@@ -49,8 +46,7 @@ def ffmpeg_build_command_h264(src: str, dst: str, width: int, height: int, fps: 
 
         ffmpeg_options = [
             "-hide_banner",
-            "-loglevel",
-            "error",
+            "-loglevel", "error",
             "-y",
         ]
 
@@ -59,7 +55,6 @@ def ffmpeg_build_command_h264(src: str, dst: str, width: int, height: int, fps: 
             "-framerate", f"{fps}",
             "-pixel_format", "yuyv422",
             "-video_size", f"{width}x{height}",
-            "-color_range", "full",
             "-i", src,
         ]
 
@@ -69,7 +64,6 @@ def ffmpeg_build_command_h264(src: str, dst: str, width: int, height: int, fps: 
             "-preset", "veryfast",
             "-pixel_format", "yuv420p",
             "-crf", "23",
-            "-color_range", "full",
             dst,
         ]
         # fmt: on

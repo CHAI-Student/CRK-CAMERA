@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from services.loadcell import LoadcellService
 from services.save import SaveService

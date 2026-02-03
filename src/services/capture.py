@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import pyudev
 
@@ -76,7 +75,8 @@ class CaptureService:
             self._subscribers.discard(queue)
 
     async def _run_with_retries(self):
-        while True:
+        assert self._capture_task is not None
+        while self._is_running and not self._capture_task.cancelled():
             try:
                 await self._run()
             except asyncio.CancelledError:
@@ -95,28 +95,31 @@ class CaptureService:
             fps=self.fps,
         )
 
-        async for frame in camera:
-            # Discard frames if there are no subscribers
-            if not self._subscribers:
-                continue
-            # Skip empty frames
-            if len(frame) == 0:
-                continue
-            # Prepare the item to send to subscribers
-            frame_data = CaptureFrame(
-                self.serial,
-                frame.data[:],
-                frame.timestamp,
-                frame.frame_nb,
-            )
-            # Create a snapshot of subscribers to avoid holding the lock while publishing
-            async with self._subscribers_lock:
-                subscribers_snapshot = tuple(self._subscribers)
-            # Publish to all subscribers
-            for subscriber in subscribers_snapshot:
-                try:
-                    subscriber.put_nowait(frame_data)
-                except asyncio.QueueFull:
-                    pass
-                except asyncio.QueueShutDown:
-                    await self.unsubscribe(subscriber)
+        try:
+            async for frame in camera:
+                # Discard frames if there are no subscribers
+                if not self._subscribers:
+                    continue
+                # Skip empty frames
+                if len(frame) == 0:
+                    continue
+                # Prepare the item to send to subscribers
+                frame_data = CaptureFrame(
+                    self.serial,
+                    frame.data[:],
+                    frame.timestamp,
+                    frame.frame_nb,
+                )
+                # Create a snapshot of subscribers to avoid holding the lock while publishing
+                async with self._subscribers_lock:
+                    subscribers_snapshot = tuple(self._subscribers)
+                # Publish to all subscribers
+                for subscriber in subscribers_snapshot:
+                    try:
+                        subscriber.put_nowait(frame_data)
+                    except asyncio.QueueFull:
+                        pass
+                    except asyncio.QueueShutDown:
+                        await self.unsubscribe(subscriber)
+        finally:
+            await camera.aclose()

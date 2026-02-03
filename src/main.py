@@ -64,13 +64,18 @@ async def lifespan(app: FastAPI):
         try:
             await service.stop()
         except Exception as e:
-            logger.error(f"Error stopping save service: {e}")
+            logger.exception(f"Error stopping save service")
+    
+    try:
+        await app.state.loadcell_service.stop()
+    except Exception as e:
+        logger.exception(f"Error stopping loadcell service")
 
     for service in app.state.capture_services.values():
         try:
             await service.stop()
         except Exception as e:
-            logger.error(f"Error stopping capture service: {e}")
+            logger.exception(f"Error stopping capture service")
 
 
 app = FastAPI(lifespan=lifespan)

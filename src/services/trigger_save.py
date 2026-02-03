@@ -301,8 +301,6 @@ class TriggerSaveService:
     async def _run(self):
         assert self._save_task is not None
         assert self._queue is not None
-        for buffer in self._replay_buffers.values():
-            buffer.clear()
         try:
             while True:
                 try:

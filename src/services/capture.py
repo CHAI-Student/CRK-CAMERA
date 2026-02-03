@@ -38,8 +38,8 @@ class CaptureService:
         self._lock = asyncio.Lock()
         self._is_running = False
 
-        self._subscribers: set[asyncio.Queue[CaptureFrame]] = set()
         self._subscribers_lock = asyncio.Lock()
+        self._subscribers: set[asyncio.Queue[CaptureFrame]] = set()
         self._capture_task: asyncio.Task | None = None
 
     async def start(self):
@@ -81,8 +81,10 @@ class CaptureService:
                 await self._run()
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
-                logger.error(f"Error in camera {self.serial}: {e}")
+            except Exception:
+                logger.exception(f"Unexpected error in camera {self.serial}")
+                if not self._is_running or self._capture_task.cancelled():
+                    raise
                 await asyncio.sleep(1)
 
     async def _run(self):
@@ -97,12 +99,16 @@ class CaptureService:
 
         try:
             async for frame in camera:
-                # Discard frames if there are no subscribers
-                if not self._subscribers:
-                    continue
                 # Skip empty frames
                 if len(frame) == 0:
                     continue
+                # Hold the subscribers lock briefly to get the current subscribers
+                async with self._subscribers_lock:
+                    # Discard frames if there are no subscribers
+                    if not self._subscribers:
+                        continue
+                    # Create a snapshot of subscribers to avoid holding the lock while publishing
+                    subscribers_snapshot = tuple(self._subscribers)
                 # Prepare the item to send to subscribers
                 frame_data = CaptureFrame(
                     self.serial,
@@ -110,9 +116,6 @@ class CaptureService:
                     frame.timestamp,
                     frame.frame_nb,
                 )
-                # Create a snapshot of subscribers to avoid holding the lock while publishing
-                async with self._subscribers_lock:
-                    subscribers_snapshot = tuple(self._subscribers)
                 # Publish to all subscribers
                 for subscriber in subscribers_snapshot:
                     try:

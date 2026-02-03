@@ -35,14 +35,14 @@ async def stop_recording(request: Request):
     trigger_save_services: dict[int, TriggerSaveService] = (
         request.app.state.trigger_save_services
     )
-    for key, service in trigger_save_services.items():
+    for service in trigger_save_services.values():
         await service.stop_session()
 
     loadcell_service: LoadcellService = request.app.state.loadcell_service
     await loadcell_service.stop()
 
     save_services: dict[int, SaveService] = request.app.state.save_services
-    for key, service in save_services.items():
+    for service in save_services.values():
         await service.stop()
 
     return {"status": "recording stopped"}

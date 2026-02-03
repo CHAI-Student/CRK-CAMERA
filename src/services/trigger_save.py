@@ -63,8 +63,10 @@ class ListeningState(BaseState):
             for key in capture_services
         }
 
-        for path in save_paths.values():
-            os.makedirs(path.parent, exist_ok=True)
+        await asyncio.gather(*[
+            asyncio.to_thread(os.makedirs, path.parent, exist_ok=True)
+            for path in save_paths.values()
+        ])
         
         _ffmpeg_processes = await asyncio.gather(*[
             ffmpeg_start(
@@ -145,8 +147,10 @@ class SavingState(BaseState):
             await self.shutdown()
 
     async def shutdown(self) -> None:
-        for process in self.ffmpeg_processes.values():
-            await ffmpeg_stop(process)
+        await asyncio.gather(*[
+            ffmpeg_stop(process)
+            for process in self.ffmpeg_processes.values()
+        ])
         self.on_finish.set()
         self.save_service._state = ListeningState(self.save_service, self.save_directory)
 

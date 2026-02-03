@@ -41,7 +41,7 @@ async def main():
             process.stdin.write(frame.data)
             await process.stdin.drain()
             frame_count += 1
-            if frame_count >= 30 * 60:
+            if frame_count >= 30 * 5:
                 break
     finally:
         if process.stdin is not None:

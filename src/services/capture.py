@@ -36,26 +36,34 @@ class CaptureService:
         self.pixel_format = pixel_format
         self.fps = fps
 
+        self._lock = asyncio.Lock()
+        self._is_running = False
+
         self._subscribers: set[asyncio.Queue[CaptureFrame]] = set()
         self._subscribers_lock = asyncio.Lock()
-        self._capture_task: Optional[asyncio.Task] = None
+        self._capture_task: asyncio.Task | None = None
 
     async def start(self):
-        if self._capture_task is not None:
-            logger.warning(f"Capture for serial {self.serial} is already running")
-            return
+        async with self._lock:
+            if self._is_running:
+                logger.warning(f"Capture for serial {self.serial} is already running")
+                return
+            self._is_running = True
 
         self._capture_task = asyncio.create_task(self._run_with_retries())
 
     async def stop(self):
-        if self._capture_task is None:
-            logger.warning(f"No capture task found for serial {self.serial}")
-            return
+        async with self._lock:
+            if not self._is_running:
+                logger.warning(f"Capture for serial {self.serial} is not running")
+                return
+            self._is_running = False
 
+        assert self._capture_task is not None
         self._capture_task.cancel()
         try:
             await self._capture_task
-        except:
+        except asyncio.CancelledError:
             pass
         self._capture_task = None
 

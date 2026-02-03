@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 import pyudev
@@ -9,6 +10,8 @@ from services.loadcell import LoadcellService
 from services.save import SaveService
 from services.trigger_save import TriggerSaveService
 from utils.misc import read_json_file
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -52,16 +55,22 @@ async def lifespan(app: FastAPI):
         trigger_save_services=trigger_save_services,
     )
     app.state.loadcell_service = loadcell_service
-    
+
     app.state.events = {}
 
     yield
 
     for service in app.state.save_services.values():
-        await service.stop()
+        try:
+            await service.stop()
+        except Exception as e:
+            logger.error(f"Error stopping save service: {e}")
 
     for service in app.state.capture_services.values():
-        await service.stop()
+        try:
+            await service.stop()
+        except Exception as e:
+            logger.error(f"Error stopping capture service: {e}")
 
 
 app = FastAPI(lifespan=lifespan)

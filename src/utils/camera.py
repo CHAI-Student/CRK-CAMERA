@@ -36,7 +36,8 @@ async def run_camera(
 
     :raises DeviceNotFoundError: If the device with the given serial is not found
     :raises OSError: If there is an error accessing the device
-    :raises asyncio.queues.QueueFull: If the internal queue is full
+    :raises asyncio.CancelledError: If the operation is cancelled
+    :raises asyncio.QueueFull: If the internal queue is full
     """
     with capture_device_from_serial(ctx, serial) as device:
         device.set_format(BufferType.VIDEO_CAPTURE, width, height, pixel_format)

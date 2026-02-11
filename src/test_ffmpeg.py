@@ -3,9 +3,8 @@ import logging
 
 import pyudev
 
-from utils.camera import run_camera
-from utils.ffmpeg import ffmpeg_build_command_mjpeg, ffmpeg_build_command_h264
-
+from utils.camera import CameraControl, run_camera
+from utils.ffmpeg import build_ffmpeg_command
 
 logging.basicConfig(level=logging.INFO)
 
@@ -15,12 +14,17 @@ async def main():
 
     dst = "./output.mp4"
 
-    ffmpeg_command = ffmpeg_build_command_h264(
-        src="pipe:0",
-        dst=dst,
+    camera_control = CameraControl(
         width=640,
         height=480,
+        format="YUYV",
         fps=30,
+    )
+
+    ffmpeg_command = build_ffmpeg_command(
+        control=camera_control,
+        src="pipe:0",
+        dst=dst,
     )
 
     process = await asyncio.create_subprocess_exec(
@@ -37,7 +41,7 @@ async def main():
     try:
         assert process.stdin is not None
         frame_count = 0
-        async for frame in run_camera(context, serial):
+        async for frame in run_camera(context, serial, control=camera_control):
             process.stdin.write(frame.data)
             await process.stdin.drain()
             frame_count += 1

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pyudev
 
-from utils.camera import run_camera
+from utils.camera import CameraControl, run_camera
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CaptureFrame:
     serial: str
+    pixel_format: str
     data: bytes
     timestamp: float
     frame_nb: int
@@ -22,18 +23,12 @@ class CaptureService:
         self,
         context: pyudev.Context,
         serial: str,
-        width: int = 640,
-        height: int = 480,
-        pixel_format: str = "YUYV",
-        fps: int = 30,
+        control: CameraControl = CameraControl(),
     ):
         self.context = context
         self.serial = serial
 
-        self.width = width
-        self.height = height
-        self.pixel_format = pixel_format
-        self.fps = fps
+        self.control = control
 
         self._lock = asyncio.Lock()
         self._is_running = False
@@ -91,10 +86,7 @@ class CaptureService:
         camera = run_camera(
             self.context,
             self.serial,
-            width=self.width,
-            height=self.height,
-            pixel_format=self.pixel_format,
-            fps=self.fps,
+            control=self.control,
         )
 
         try:
@@ -112,6 +104,7 @@ class CaptureService:
                 # Prepare the item to send to subscribers
                 frame_data = CaptureFrame(
                     self.serial,
+                    frame.pixel_format.name,
                     frame.data[:],
                     frame.timestamp,
                     frame.frame_nb,

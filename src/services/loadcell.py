@@ -86,7 +86,7 @@ class LoadcellService:
         for zone in affected_zones:
             trigger_save_service = self.trigger_save_services.get(zone)
             if trigger_save_service:
-                trigger_event = await trigger_save_service.trigger(1.0)
+                trigger_event = await trigger_save_service.trigger(3.0)
                 # Both events must be present to proceed
                 if trigger_event is None:
                     logger.info(
@@ -113,7 +113,7 @@ class LoadcellService:
         # Find the index of the first entry at or after (timestamp - 0.5)
         loadcells_index = bisect.bisect_left(
             self._loadcell_history,
-            timestamp - 0.5,
+            timestamp - 1,
             key=lambda x: x["timestamp_float"],
         )
 

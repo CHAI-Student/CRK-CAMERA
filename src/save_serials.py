@@ -3,9 +3,9 @@ import logging
 
 import pyudev
 
-from utils.camera import run_camera
+from utils.camera import CameraControl, run_camera
 from utils.device import iter_capture_device_serials
-from utils.ffmpeg import ffmpeg_build_command_mjpeg, ffmpeg_build_command_h264
+from utils.ffmpeg import build_ffmpeg_command
 
 
 logging.basicConfig(level=logging.INFO)
@@ -17,12 +17,15 @@ async def main():
     for serial in iter_capture_device_serials(context):
         dst = f"./{serial}.mp4"
 
-        ffmpeg_command = ffmpeg_build_command_h264(
+        ffmpeg_command = build_ffmpeg_command(
+            control=CameraControl(
+                width=640,
+                height=480,
+                format="YUYV",
+                fps=30,
+            ),
             src="pipe:0",
             dst=dst,
-            width=640,
-            height=480,
-            fps=30,
         )
 
         process = await asyncio.create_subprocess_exec(

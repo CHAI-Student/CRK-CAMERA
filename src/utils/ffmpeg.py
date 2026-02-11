@@ -1,101 +1,82 @@
 import asyncio
 from typing import Literal, Optional
 
+from utils.camera import CameraControl
 
-def ffmpeg_build_command_mjpeg(src: str, dst: str, width: int, height: int, fps: int) -> list[str]:
-        # fmt: off
-        ffmpeg_binary = [ "./ffmpeg-8.0/bin/ffmpeg" ]
+ffmpeg_binary = [ "./ffmpeg-8.0/bin/ffmpeg" ]
 
-        ffmpeg_options = [
-            "-hide_banner",
-            "-loglevel", "error",
-            "-y",
-        ]
+ffmpeg_options = [
+    "-hide_banner",
+    "-loglevel", "error",
+    "-y",
+]
 
-        ffmpeg_input = [
+def build_ffmpeg_input_argument(control: CameraControl, src: str) -> list[str]:
+    if control.format.upper() == "YUYV":
+        return [
             "-f", "rawvideo",
-            "-framerate", f"{fps}",
+            "-video_size", f"{control.width}x{control.height}",
             "-pixel_format", "yuyv422",
-            "-video_size", f"{width}x{height}",
+            "-framerate", f"{control.fps}",
             "-i", src,
         ]
-
-        ffmpeg_output = [
-            "-f", "avi",
-            "-pixel_format", "yuv422p",
+    elif control.format.upper() == "MJPG":
+        return [
+            "-f", "image2pipe",
+            "-video_size", f"{control.width}x{control.height}",
             "-codec:v", "mjpeg",
-            "-qcomp:v", "1",
-            "-qmin:v", "2",
-            "-qmax:v", "5",
-            dst,
-        ]
-        # fmt: on
-
-        command = (
-            ffmpeg_binary
-            + ffmpeg_options
-            + ffmpeg_input
-            + ffmpeg_output
-        )
-
-        return command
-
-def ffmpeg_build_command_h264(src: str, dst: str, width: int, height: int, fps: int) -> list[str]:
-        # fmt: off
-        ffmpeg_binary = [ "./ffmpeg-8.0/bin/ffmpeg" ]
-
-        ffmpeg_options = [
-            "-hide_banner",
-            "-loglevel", "error",
-            "-y",
-        ]
-
-        ffmpeg_input = [
-            "-f", "rawvideo",
-            "-framerate", f"{fps}",
-            "-pixel_format", "yuyv422",
-            "-video_size", f"{width}x{height}",
+            "-framerate", f"{control.fps}",
             "-i", src,
         ]
+    else:
+        raise ValueError(f"Unsupported format: {control.format}")
 
-        ffmpeg_output = [
+def build_ffmpeg_output_argument(control: CameraControl, dst: str, encoder: Literal["mjpeg", "h264"]) -> list[str]:
+    if encoder == "mjpeg":
+        if control.format.upper() == "YUYV":
+            return [
+                "-f", "avi",
+                "-pixel_format", "yuv422p",
+                "-codec:v", "mjpeg",
+                "-qcomp:v", "1",
+                "-qmin:v", "2",
+                "-qmax:v", "4",
+                dst,
+            ]
+        elif control.format.upper() == "MJPG":
+            return [
+                "-f", "avi",
+                "-codec:v", "copy",
+                dst,
+            ]
+        else:
+            raise ValueError(f"Unsupported format for mjpeg encoder: {control.format}")
+    elif encoder == "h264":
+        return [
             "-f", "mp4",
+            "-pixel_format", "yuv420p",
             "-codec:v", "libx264",
             "-preset", "veryfast",
-            "-pixel_format", "yuv420p",
             "-crf", "23",
             dst,
         ]
-        # fmt: on
-
-        command = (
-            ffmpeg_binary
-            + ffmpeg_options
-            + ffmpeg_input
-            + ffmpeg_output
-        )
-
-        return command
-
-async def ffmpeg_start(dst: str, width: int, height: int, fps: int, encoder: Literal["mjpeg", "h264"] = "mjpeg", log_path: Optional[str] = None) -> asyncio.subprocess.Process:
-    if encoder == "mjpeg":
-        command = ffmpeg_build_command_mjpeg(
-            src="pipe:0",
-            dst=dst,
-            width=width,
-            height=height,
-            fps=fps,
-        )
-    elif encoder == "h264":
-        command = ffmpeg_build_command_h264(
-            src="pipe:0",
-            dst=dst,
-            width=width,
-            height=height,
-            fps=fps,
-        )
     else:
         raise ValueError(f"Unsupported encoder: {encoder}")
+
+def build_ffmpeg_command(control: CameraControl, src: str, dst: str, encoder: Literal["mjpeg", "h264"] = "mjpeg") -> list[str]:
+    ffmpeg_input = build_ffmpeg_input_argument(control, src)
+    ffmpeg_output = build_ffmpeg_output_argument(control, dst, encoder)
+    command = (
+        ffmpeg_binary
+        + ffmpeg_options
+        + ffmpeg_input
+        + ffmpeg_output
+    )
+    return command
+
+async def ffmpeg_start(control: CameraControl, dst: str, encoder: Literal["mjpeg", "h264"] = "mjpeg", log_path: Optional[str] = None) -> asyncio.subprocess.Process:
+    command = build_ffmpeg_command(control, src="pipe:0", dst=dst, encoder=encoder)
+
     process = await asyncio.create_subprocess_exec(
         *command,
         stdin=asyncio.subprocess.PIPE,

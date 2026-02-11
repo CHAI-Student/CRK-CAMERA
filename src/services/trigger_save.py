@@ -71,9 +71,7 @@ class ListeningState(BaseState):
         _ffmpeg_processes = await asyncio.gather(*[
             ffmpeg_start(
                 dst=path.as_posix(),
-                width=cs.width,
-                height=cs.height,
-                fps=cs.fps,
+                control=cs.control,
                 log_path=path.with_suffix(".log").as_posix(),
             )
             for path, cs in zip(save_paths.values(), capture_services.values())
@@ -171,7 +169,7 @@ class TriggerSaveService:
         self._queue: Optional[asyncio.Queue[CaptureFrame]] = None
 
         self._replay_buffers: dict[str, deque[CaptureFrame]] = {
-            k: deque(maxlen=int(replay_duration * cs.fps))
+            k: deque(maxlen=int(replay_duration * cs.control.fps))
             for k, cs in capture_services.items()
         }
 

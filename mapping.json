@@ -1,8 +1,8 @@
 {
-    "WITHROBOT_Inc._oCam-5CRO-U-M_SN_38599691": 0,
-    "WITHROBOT_Inc._oCam-5CRO-U-M_SN_38599586": 1,
-    "WITHROBOT_Inc._oCam-5CRO-U-M_SN_38598422": 2,
-    "WITHROBOT_Inc._oCam-5CRO-U-M_SN_38598235": 3,
-    "WITHROBOT_Inc._oCam-5CRO-U-M_SN_38599519": 4,
-    "WITHROBOT_Inc._oCam-5CRO-U-M_SN_38599194": 5
+    "Camera01_Camera01": 0,
+    "Camera02_Camera02": 1,
+    "Camera03_Camera03": 2,
+    "Camera04_Camera04": 3,
+    "Camera05_Camera05": 4,
+    "Camera06_Camera06": 5
 }

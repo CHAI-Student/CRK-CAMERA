@@ -37,9 +37,7 @@ class SaveService:
 
         process = await ffmpeg_start(
             dst=path.as_posix(),
-            width=self.capture_service.width,
-            height=self.capture_service.height,
-            fps=self.capture_service.fps,
+            control=self.capture_service.control,
             encoder="h264",
             log_path=path.with_suffix(".log").as_posix(),
         )

@@ -9,6 +9,7 @@ def main():
 
     for serial in iter_capture_device_serials(context):
         print(serial)
+        print(capture_device_from_serial(context, serial))
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 {
     "Camera01_Camera01": 0,
-    "Camera02_Camera02": 1,
-    "Camera03_Camera03": 2,
+    "Camera02_Camera02": 4,
+    "Camera03_Camera03": 1,
     "Camera04_Camera04": 3,
-    "Camera05_Camera05": 4,
-    "Camera06_Camera06": 5
+    "Camera05_Camera05": 5,
+    "Camera06_Camera06": 2
 }

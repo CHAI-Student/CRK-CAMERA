@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 from utils.camera import CameraControl
 
-ffmpeg_binary = [ "./ffmpeg-8.0/bin/ffmpeg" ]
+ffmpeg_binary = [ "ffmpeg" ]
 
 ffmpeg_options = [
     "-hide_banner",

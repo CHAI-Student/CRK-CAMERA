@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
         width=640,
         height=480,
         format="MJPG",
-        fps=50,
+        fps=15,
         extra={
             "power_line_frequency": 0,
         },

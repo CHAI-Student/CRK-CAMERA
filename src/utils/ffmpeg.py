@@ -11,29 +11,29 @@ ffmpeg_options = [
     "-y",
 ]
 
-def build_ffmpeg_input_argument(control: CameraControl, src: str) -> list[str]:
-    if control.format.upper() == "YUYV":
+def build_ffmpeg_input_argument(format: str, width: int, height: int, fps: int, src: str) -> list[str]:
+    if format.upper() == "YUYV":
         return [
             "-f", "rawvideo",
-            "-video_size", f"{control.width}x{control.height}",
+            "-video_size", f"{width}x{height}",
             "-pixel_format", "yuyv422",
-            "-framerate", f"{control.fps}",
+            "-framerate", f"{fps}",
             "-i", src,
         ]
-    elif control.format.upper() == "MJPG":
+    elif format.upper() == "MJPG":
         return [
             "-f", "image2pipe",
-            "-video_size", f"{control.width}x{control.height}",
+            "-video_size", f"{width}x{height}",
             "-codec:v", "mjpeg",
-            "-framerate", f"{control.fps}",
+            "-framerate", f"{fps}",
             "-i", src,
         ]
     else:
-        raise ValueError(f"Unsupported format: {control.format}")
+        raise ValueError(f"Unsupported format: {format}")
 
-def build_ffmpeg_output_argument(control: CameraControl, dst: str, encoder: Literal["mjpeg", "h264"]) -> list[str]:
+def build_ffmpeg_output_argument(format: str, width: int, height: int, fps: int, dst: str, encoder: Literal["mjpeg", "h264"]) -> list[str]:
     if encoder == "mjpeg":
-        if control.format.upper() == "YUYV":
+        if format.upper() == "YUYV":
             return [
                 "-f", "avi",
                 "-pixel_format", "yuv422p",
@@ -43,14 +43,14 @@ def build_ffmpeg_output_argument(control: CameraControl, dst: str, encoder: Lite
                 "-qmax:v", "4",
                 dst,
             ]
-        elif control.format.upper() == "MJPG":
+        elif format.upper() == "MJPG":
             return [
                 "-f", "avi",
                 "-codec:v", "copy",
                 dst,
             ]
         else:
-            raise ValueError(f"Unsupported format for mjpeg encoder: {control.format}")
+            raise ValueError(f"Unsupported format for mjpeg encoder: {format}")
     elif encoder == "h264":
         return [
             "-f", "mp4",
@@ -63,9 +63,9 @@ def build_ffmpeg_output_argument(control: CameraControl, dst: str, encoder: Lite
     else:
         raise ValueError(f"Unsupported encoder: {encoder}")
 
-def build_ffmpeg_command(control: CameraControl, src: str, dst: str, encoder: Literal["mjpeg", "h264"] = "mjpeg") -> list[str]:
-    ffmpeg_input = build_ffmpeg_input_argument(control, src)
-    ffmpeg_output = build_ffmpeg_output_argument(control, dst, encoder)
+def build_ffmpeg_command(format: str, width: int, height: int, fps: int, src: str, dst: str, encoder: Literal["mjpeg", "h264"] = "mjpeg") -> list[str]:
+    ffmpeg_input = build_ffmpeg_input_argument(format, width, height, fps, src)
+    ffmpeg_output = build_ffmpeg_output_argument(format, width, height, fps, dst, encoder)
     command = (
         ffmpeg_binary
         + ffmpeg_options
@@ -75,7 +75,7 @@ def build_ffmpeg_command(control: CameraControl, src: str, dst: str, encoder: Li
     return command
 
 async def ffmpeg_start(control: CameraControl, dst: str, encoder: Literal["mjpeg", "h264"] = "mjpeg", log_path: Optional[str] = None) -> asyncio.subprocess.Process:
-    command = build_ffmpeg_command(control, src="pipe:0", dst=dst, encoder=encoder)
+    command = build_ffmpeg_command(control.format, control.width, control.height, control.fps, src="pipe:0", dst=dst, encoder=encoder)
 
     process = await asyncio.create_subprocess_exec(
         *command,

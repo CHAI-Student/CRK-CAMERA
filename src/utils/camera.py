@@ -6,7 +6,7 @@ from typing import Any, AsyncGenerator
 import pyudev
 from linuxpy.video.device import Device, Frame, VideoCapture
 
-from utils.device import capture_device_from_serial
+from utils.device import capture_device_from_serial, reset_device_from_serial
 
 
 @dataclass
@@ -51,11 +51,18 @@ async def run_camera(
         stream.set_fps(control.fps)
         _apply_controls(device, control.extra)
 
-        async with _to_async(stream):
-            assert stream.buffer is not None
-            async with stream.buffer.frame_reader:
-                while True:
-                    yield await stream.buffer.frame_reader.aread()
+        try:
+            async with _to_async(stream):
+                assert stream.buffer is not None
+                async with stream.buffer.frame_reader:
+                    while True:
+                        async with asyncio.timeout(1 / control.fps * 10): # timeout: 10 frames
+                            yield await stream.buffer.frame_reader.aread()
+        except TimeoutError:
+            reset_device_from_serial(ctx, serial)
+            print(f'initiated reset on {serial}')
+            raise
+                        
 
 
 def _apply_controls(device: Device, controls: dict[str, Any]) -> None:

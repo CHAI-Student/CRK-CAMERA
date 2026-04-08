@@ -34,3 +34,14 @@ def capture_device_from_serial(ctx: pyudev.Context, serial: str) -> LinuxPyDevic
         linuxpy_dev = LinuxPyDevice(pyudev_dev.device_node)
         return linuxpy_dev
     raise DeviceNotFoundError(f"Capture device with serial {serial} not found")
+
+def reset_device(device_path: str):
+    USBDEVFS_RESET = 21780
+    device_file = open(device_path, 'w', os.O_WRONLY)
+    fnctl.ioctl(device_file, USBDEVFS_RESET, 0)
+
+def reset_device_from_serial(ctx: pyudev.Context, serial: str):
+    for pyudev_dev in ctx.list_devices(subsystem="usb", ID_SERIAL=serial):
+        print(pyudev_dev.device_node)
+        reset_device(pyudev_dev.device_node)
+    raise DeviceNotFoundError(f"Device with serial {serial} not found")

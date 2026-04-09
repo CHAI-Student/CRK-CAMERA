@@ -35,10 +35,10 @@ async def lifespan(app: FastAPI):
     )
 
     capture_services: dict[int, CaptureService] = {}
-    for key, value in mapping.items():
-        capture_service = CaptureService(context, key, camera_control)
+    for entry in mapping:
+        capture_service = CaptureService(context, entry["device"]["serial"], entry["device"]["index"], camera_control)
         await capture_service.start()
-        capture_services[value] = capture_service
+        capture_services[entry["mapping"]["index"]] = capture_service
     app.state.capture_services = capture_services
 
     save_services: dict[int, SaveService] = {}

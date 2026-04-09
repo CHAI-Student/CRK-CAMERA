@@ -1,15 +1,29 @@
+import json
+
 import pyudev
 
 from utils.device import iter_capture_device_serials, capture_device_from_serial
 
 
 def main():
-
     context = pyudev.Context()
 
-    for serial in iter_capture_device_serials(context):
-        print(serial)
-        print(capture_device_from_serial(context, serial))
+    ref_cnt = {}
+    obj = []
+
+    for i, serial in enumerate(iter_capture_device_serials(context)):
+        obj.append({
+            "device": {
+                "serial": serial,
+                "index": ref_cnt.setdefault(serial, 0),
+            },
+            "mapping": {
+                "index": i,
+            }
+        })
+        ref_cnt[serial] += 1
+    
+    print(json.dumps(obj, indent=2))
 
 
 if __name__ == "__main__":

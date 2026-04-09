@@ -89,11 +89,9 @@ async def video_feed(request: Request, index: int = 0):
 
 @router.get("/streams", response_class=HTMLResponse)
 async def videos_feed(request: Request):
-    capture_services: dict[int, CaptureService] = request.app.state.capture_services
-    capture_services = sorted(list(capture_services))
+    capture_services: list[int] = sorted(list(request.app.state.capture_services))
 
-    camera_mapping: dict[str, int] = request.app.state.camera_mapping
-    camera_mapping = { v: k for k, v in camera_mapping.items() }
+    camera_mapping: dict[int, str] = { entry["mapping"]["index"]: entry["device"]["serial"] for entry in request.app.state.camera_mapping }
 
     rows = []
 

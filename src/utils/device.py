@@ -1,5 +1,7 @@
+import os
 from typing import Iterable
 
+from linuxpy.ioctl import ioctl
 from linuxpy.video.device import Device as LinuxPyDevice
 import pyudev
 
@@ -26,22 +28,35 @@ def iter_capture_device_serials(ctx: pyudev.Context) -> Iterable[str]:
         yield ID_SERIAL
 
 
-def capture_device_from_serial(ctx: pyudev.Context, serial: str) -> LinuxPyDevice:
+def capture_device_from_serial(ctx: pyudev.Context, serial: str, index: int) -> LinuxPyDevice:
+    i = 0
     for pyudev_dev in ctx.list_devices(subsystem="video4linux", ID_SERIAL=serial):
         V4L_CAPABILITIES = _parse_list(pyudev_dev.properties.get("ID_V4L_CAPABILITIES"))
         if not "capture" in V4L_CAPABILITIES:
+            continue
+        if i < index:
+            i += 1
             continue
         linuxpy_dev = LinuxPyDevice(pyudev_dev.device_node)
         return linuxpy_dev
     raise DeviceNotFoundError(f"Capture device with serial {serial} not found")
 
-def reset_device(device_path: str):
+def reset_device(device_path):
     USBDEVFS_RESET = 21780
-    device_file = open(device_path, 'w', os.O_WRONLY)
-    fnctl.ioctl(device_file, USBDEVFS_RESET, 0)
+    with open(device_path, 'w', os.O_WRONLY) as f:
+        ioctl(f, USBDEVFS_RESET, 0)
 
-def reset_device_from_serial(ctx: pyudev.Context, serial: str):
-    for pyudev_dev in ctx.list_devices(subsystem="usb", ID_SERIAL=serial):
-        print(pyudev_dev.device_node)
-        reset_device(pyudev_dev.device_node)
+def reset_device_from_serial(ctx: pyudev.Context, serial: str, index: int):
+    i = 0
+    for pyudev_dev in ctx.list_devices(subsystem="video4linux", ID_SERIAL=serial):
+        V4L_CAPABILITIES = _parse_list(pyudev_dev.properties.get("ID_V4L_CAPABILITIES"))
+        if not "capture" in V4L_CAPABILITIES:
+            continue
+        if i < index:
+            i += 1
+            continue
+        pyudev_dev_usb = pyudev_dev.find_parent("usb")
+        assert pyudev_dev_usb is not None
+        print(pyudev_dev_usb.device_node)
+        reset_device(pyudev_dev_usb.device_node)
     raise DeviceNotFoundError(f"Device with serial {serial} not found")

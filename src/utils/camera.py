@@ -21,6 +21,7 @@ class CameraControl:
 async def run_camera(
     ctx: pyudev.Context,
     serial: str,
+    index: int,
     control: CameraControl = CameraControl(),
 ) -> AsyncGenerator[Frame]:
     """
@@ -30,6 +31,8 @@ async def run_camera(
     :type ctx: pyudev.Context
     :param serial: serial number of the camera device
     :type serial: str
+    :param index: index of the camera device
+    :type index: int
     :param control: control settings of the video frame, defaults to CameraControl()
     :type control: CameraControl, optional
 
@@ -42,7 +45,7 @@ async def run_camera(
     :raises asyncio.QueueFull: If the internal queue is full
     """
 
-    device = capture_device_from_serial(ctx, serial)
+    device = capture_device_from_serial(ctx, serial, index)
 
     async with _to_async(device):
         stream = VideoCapture(device)
@@ -59,7 +62,7 @@ async def run_camera(
                         async with asyncio.timeout(1 / control.fps * 10): # timeout: 10 frames
                             yield await stream.buffer.frame_reader.aread()
         except TimeoutError:
-            reset_device_from_serial(ctx, serial)
+            reset_device_from_serial(ctx, serial, index)
             print(f'initiated reset on {serial}')
             raise
                         

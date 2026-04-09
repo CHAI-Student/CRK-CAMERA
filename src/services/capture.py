@@ -23,10 +23,12 @@ class CaptureService:
         self,
         context: pyudev.Context,
         serial: str,
+        index: int,
         control: CameraControl = CameraControl(),
     ):
         self.context = context
         self.serial = serial
+        self.index = index
 
         self.control = control
 
@@ -86,6 +88,7 @@ class CaptureService:
         camera = run_camera(
             self.context,
             self.serial,
+            self.index,
             control=self.control,
         )
 

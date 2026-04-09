@@ -57,8 +57,13 @@ async def run_camera(
         async with _to_async(stream):
             assert stream.buffer is not None
             async with stream.buffer.frame_reader:
+                # wait for first frame generously
+                async with asyncio.timeout(1 / control.fps * 20): # timeout: 20 frames
+                    yield await stream.buffer.frame_reader.aread()
+
+                # normal cycle
                 while True:
-                    async with asyncio.timeout(1 / control.fps * 10): # timeout: 10 frames
+                    async with asyncio.timeout(1 / control.fps * 5): # timeout: 5 frames
                         yield await stream.buffer.frame_reader.aread()
 
 

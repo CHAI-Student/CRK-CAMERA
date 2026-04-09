@@ -73,6 +73,9 @@ class CaptureService:
 
     async def _run_with_retries(self):
         assert self._capture_task is not None
+
+        wait_time = 0
+
         while self._is_running and not self._capture_task.cancelled():
             try:
                 await self._run()
@@ -82,7 +85,15 @@ class CaptureService:
                 logger.exception(f"Unexpected error in camera {self.serial}")
                 if not self._is_running or self._capture_task.cancelled():
                     raise
-                await asyncio.sleep(1)
+
+                loop = asyncio.get_running_loop()
+
+                sleep_time = wait_time - loop.time()
+
+                if sleep_time > 0.0:
+                    await asyncio.sleep(sleep_time)
+
+                wait_time = loop.time() + 1.0
 
     async def _run(self):
         camera = run_camera(

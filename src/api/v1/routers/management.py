@@ -46,7 +46,9 @@ class HealthResponse(BaseModel):
 async def get_health(request: Request) -> HealthResponse:
     serials = set(iter_capture_device_serials(request.app.state.pyudev_context))
     missing_cameras = []
-    for serial, index in request.app.state.camera_mapping.items():
+    for obj in request.app.state.camera_mapping:
+        device = obj["device"]
+        serial = device["serial"]
         if serial not in serials:
             missing_cameras.append(CameraInfo(serial=serial, index=index))
     if missing_cameras:

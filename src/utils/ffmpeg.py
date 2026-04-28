@@ -41,12 +41,14 @@ def build_ffmpeg_output_argument(format: str, width: int, height: int, fps: int,
                 "-qcomp:v", "1",
                 "-qmin:v", "2",
                 "-qmax:v", "4",
+                "-framerate", f"{fps}",
                 dst,
             ]
         elif format.upper() == "MJPG":
             return [
                 "-f", "avi",
                 "-codec:v", "copy",
+                "-framerate", f"{fps}",
                 dst,
             ]
         else:
@@ -58,6 +60,7 @@ def build_ffmpeg_output_argument(format: str, width: int, height: int, fps: int,
             "-codec:v", "libx264",
             "-preset", "veryfast",
             "-crf", "23",
+            "-framerate", f"{fps}",
             dst,
         ]
     else:

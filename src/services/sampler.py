@@ -21,10 +21,12 @@ class SamplerService:
         self._reverse_mapping = {v.serial: k for k, v in capture_services.items()}
         self.stop_timeout = stop_timeout
 
+        self._save_path: Optional[Path] = None
+
         self._sampling_task: Optional[asyncio.Task] = None
+        self._saving_tasks: set[asyncio.Task] = set()
 
         self._queue: Optional[asyncio.Queue[CaptureFrame]] = None
-        self._ffmpeg_processes: dict[int, asyncio.subprocess.Process] = {}
 
         self._lock = asyncio.Lock()
 
@@ -42,39 +44,7 @@ class SamplerService:
                 logger.warning("Save service is already running")
                 return
 
-            await asyncio.to_thread(os.makedirs, save_path, exist_ok=True)
-
-            _save_path = Path(save_path)
-
-            _ffmpeg_processes = await asyncio.gather(
-                *[
-                    ffmpeg_start(
-                        dst=(_save_path / f"{idx}.avi").as_posix(),
-                        control=cs.control,
-                        log_path=(_save_path / f"{idx}.log").as_posix(),
-                    )
-                    for idx, cs in self.capture_services.items()
-                    if idx in cameras
-                ],
-                return_exceptions=True,
-            )
-
-            if any(isinstance(p, BaseException) for p in _ffmpeg_processes):
-                # Cleanup any started processes
-                for p in _ffmpeg_processes:
-                    if isinstance(p, asyncio.subprocess.Process):
-                        await ffmpeg_stop(p)
-                raise RuntimeError("Failed to start ffmpeg processes")
-
-            def _generator():
-                for p in _ffmpeg_processes:
-                    assert isinstance(p, asyncio.subprocess.Process)
-                    yield p
-
-            self._ffmpeg_processes = dict(
-                zip([idx for idx in self.capture_services if idx in cameras], _generator())
-            )
-
+            self._save_path = Path(save_path)
             self._queue = asyncio.Queue(maxsize=90)
             self._sampling_task = asyncio.create_task(self._run_with_retries())
             for camera_id in cameras:
@@ -121,10 +91,7 @@ class SamplerService:
                 except asyncio.CancelledError:
                     pass
             finally:
-                await asyncio.gather(*[
-                    ffmpeg_stop(process)
-                    for process in self._ffmpeg_processes.values()
-                ])
+                await asyncio.gather(*self._saving_tasks, return_exceptions=True)
                 self._sampling_task = None
 
     async def _run_with_retries(self):
@@ -135,17 +102,14 @@ class SamplerService:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                for process in self._ffmpeg_processes.values():
-                    if not await is_running(process):
-                        logger.error("ffmpeg process has exited unexpectedly")
-                        await self.stop()
-                        return
                 logger.error(f"Error in SaveService, restarting: {e}")
                 await asyncio.sleep(1)
 
     async def _run(self):
+        assert self._save_path is not None
         assert self._sampling_task is not None
         assert self._queue is not None
+        frame_numbers = {key: 0 for key in self.capture_services.keys()}
         while True:
             try:
                 frame = await self._queue.get()
@@ -158,12 +122,36 @@ class SamplerService:
                 self._queue.task_done()
                 continue
             try:
-                await ffmpeg_feed_data(self._ffmpeg_processes[key], frame.data)
+                camera_control = self.capture_services[key].control
+                width, height = camera_control.width, camera_control.height
+                task = asyncio.create_task(asyncio.to_thread(_write_frame_to_file, self._save_path, key, frame.pixel_format, bytes(frame.data), frame_numbers.setdefault(key, 0), width, height))
+                self._saving_tasks.add(task)
+                task.add_done_callback(self._saving_tasks.discard)
+                frame_numbers[key] += 1
             finally:
                 self._queue.task_done()
-
 
 async def is_running(proc):
     with contextlib.suppress(asyncio.TimeoutError):
         await asyncio.wait_for(proc.wait(), 1e-6)
     return proc.returncode is None
+
+def _write_frame_to_file(save_path: Path, camera_id: int, pixel_format: str, data: bytes, index: int, width: int, height: int):
+    camera_path = save_path / f"cam_{camera_id}"
+    camera_path.mkdir(parents=True, exist_ok=True)
+    frame_path = camera_path / f"{index:06d}.jpg"
+    if pixel_format == "JPEG" or pixel_format == "MJPEG":
+        with open(frame_path, "wb") as f:
+            f.write(data)
+    elif pixel_format == "YUYV":
+        # Convert YUYV to JPEG
+        import cv2
+        import numpy as np
+        yuyv_image = np.frombuffer(data, dtype=np.uint8)
+        yuyv_image = yuyv_image.reshape((height, width, 2))
+        bgr_image = cv2.cvtColor(yuyv_image, cv2.COLOR_YUV2BGR_YUYV)
+        ret, jpeg_image = cv2.imencode('.jpg', bgr_image)
+        if not ret:
+            raise ValueError("Failed to encode YUYV image to JPEG")
+        with open(frame_path, "wb") as f:
+            f.write(jpeg_image.tobytes())

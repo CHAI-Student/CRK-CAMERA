@@ -50,13 +50,22 @@ async def lifespan(app: FastAPI):
     app.state.save_services = save_services
 
     trigger_save_services: dict[int, TriggerSaveService] = {}
-    for key, value in capture_services.items():
-        if key == 0:
-            continue
+#    for key, value in capture_services.items():
+#        if key == 0:
+#            continue
+#        trigger_save_service = TriggerSaveService(
+#            {
+#                "top": capture_services[0],
+#                "side": value,
+#            }
+#        )
+#        await trigger_save_service.start()
+#        trigger_save_services[key] = trigger_save_service
+    for key in range(1, 6):
         trigger_save_service = TriggerSaveService(
             {
                 "top": capture_services[0],
-                "side": value,
+                "side": capture_services[1],
             }
         )
         await trigger_save_service.start()
@@ -64,7 +73,7 @@ async def lifespan(app: FastAPI):
     app.state.trigger_save_services = trigger_save_services
 
     loadcell_service = LoadcellService(
-        sse_url="http://localhost:8000/sse?streams=loadcells&filter_method=exponential&filter_alpha=0.8&threshold=2",
+        sse_url="http://localhost:8000/sse?streams=loadcells&filter_method=exponential&filter_alpha=0.8&threshold=5",
         trigger_save_services=trigger_save_services,
     )
     app.state.loadcell_service = loadcell_service

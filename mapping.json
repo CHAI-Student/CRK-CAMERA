@@ -1,56 +1,20 @@
 [
   {
     "device": {
-      "serial": "WITHROBOT_Inc._oCam-5CRO-U_SN_2C25D030",
+      "serial": "WITHROBOT_Inc._oCam-5CRO-U_SN_3F93F004",
+      "index": 0
+    },
+    "mapping": {
+      "index": 0
+    }
+  },
+  {
+    "device": {
+      "serial": "WITHROBOT_Inc._oCam-5CRO-U_SN_2C25D127",
       "index": 0
     },
     "mapping": {
       "index": 1
-    }
-  },
-  {
-    "device": {
-      "serial": "WITHROBOT_Inc._oCam-5CRO-U_SN_2C25D206",
-      "index": 0
-    },
-    "mapping": {
-      "index": 3
-    }
-  },
-  {
-    "device": {
-      "serial": "WITHROBOT_Inc._oCam-5CRO-U_SN_2C25D021",
-      "index": 0
-    },
-    "mapping": {
-      "index": 5
-    }
-  },
-  {
-    "device": {
-      "serial": "WITHROBOT_Inc._oCam-5CRO-U_SN_3F937008",
-      "index": 0
-    },
-    "mapping": {
-      "index": 0
-    }
-  },
-  {
-    "device": {
-      "serial": "WITHROBOT_Inc._oCam-5CRO-U_SN_2C25D216",
-      "index": 0
-    },
-    "mapping": {
-      "index": 4
-    }
-  },
-  {
-    "device": {
-      "serial": "WITHROBOT_Inc._oCam-5CRO-U_SN_3F937005",
-      "index": 0
-    },
-    "mapping": {
-      "index": 2
     }
   }
 ]

@@ -86,7 +86,9 @@ class LoadcellService:
         for zone in affected_zones:
             trigger_save_service = self.trigger_save_services.get(zone)
             if trigger_save_service:
-                trigger_event = await trigger_save_service.trigger(3.0)
+                trigger_event = await trigger_save_service.trigger(
+                    3.0, data["timestamp_float"]
+                )
                 # Both events must be present to proceed
                 if trigger_event is None:
                     logger.info(
@@ -147,6 +149,11 @@ class LoadcellService:
                     json={
                         "zone": zone,
                         "loadcells": loadcells_data,
+                        # Wall-clock anchors of every change that started or
+                        # extended this episode — lets the model reconstruct
+                        # sub-events inside a merged episode. Optional field;
+                        # older model versions ignore it.
+                        "change_timestamps": list(event.change_timestamps),
                         "videos": {
                             "top": event.paths["top"].as_posix(),
                             "side": event.paths["side"].as_posix(),

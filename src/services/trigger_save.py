@@ -19,11 +19,15 @@ logger = logging.getLogger(__name__)
 class TriggerEvent:
     event: asyncio.Event
     paths: dict[str, Path]
+    # Wall-clock (IO-BOARD clock) timestamps of every loadcell change that
+    # started or extended this episode. save_until is monotonic (loop.time())
+    # — never mix the two time bases.
+    change_timestamps: list[float]
 
 
 class BaseState(metaclass=ABCMeta):
     @abstractmethod
-    async def trigger(self, duration: float) -> Optional[TriggerEvent]:
+    async def trigger(self, duration: float, ts: float) -> Optional[TriggerEvent]:
         pass
 
     @abstractmethod
@@ -38,8 +42,8 @@ class BaseState(metaclass=ABCMeta):
 class IdleState(BaseState):
     def __init__(self, save_service: "TriggerSaveService"):
         self.save_service = save_service
-    
-    async def trigger(self, duration: float) -> None:
+
+    async def trigger(self, duration: float, ts: float) -> None:
         pass
     
     async def frame(self, frame: CaptureFrame) -> None:
@@ -54,7 +58,7 @@ class ListeningState(BaseState):
         self.save_service = save_service
         self.save_directory = save_directory
 
-    async def trigger(self, duration: float) -> TriggerEvent:
+    async def trigger(self, duration: float, ts: float) -> TriggerEvent:
         capture_services = self.save_service.capture_services
         timestamp = format_unix_timestamp(time.time())
 
@@ -103,11 +107,16 @@ class ListeningState(BaseState):
         on_finish = asyncio.Event()
         save_until = asyncio.get_running_loop().time() + duration
 
+        # Shared with SavingState so extension triggers append to the same
+        # list the caller received in the TriggerEvent.
+        change_timestamps = [ts]
+
         self.save_service._state = SavingState(
-            self.save_service, self.save_directory, on_finish, save_until, ffmpeg_processes
+            self.save_service, self.save_directory, on_finish, save_until,
+            ffmpeg_processes, change_timestamps,
         )
 
-        return TriggerEvent(on_finish, save_paths)
+        return TriggerEvent(on_finish, save_paths, change_timestamps)
 
     async def frame(self, frame: CaptureFrame) -> None:
         pass
@@ -124,17 +133,21 @@ class SavingState(BaseState):
         on_finish: asyncio.Event,
         save_until: float,
         ffmpeg_processes: Mapping[str, asyncio.subprocess.Process],
+        change_timestamps: list[float],
     ):
         self.save_service = save_service
         self.save_directory = save_directory
         self.on_finish = on_finish
         self.save_until = save_until
         self.ffmpeg_processes = ffmpeg_processes
+        self.change_timestamps = change_timestamps
 
-    async def trigger(self, duration: float) -> None:
+    async def trigger(self, duration: float, ts: float) -> None:
         self.save_until = max(
             self.save_until, asyncio.get_running_loop().time() + duration
         )
+        # Called under the service state lock, so no race with shutdown.
+        self.change_timestamps.append(ts)
 
     async def frame(self, frame: CaptureFrame) -> None:
         key = self.save_service._reverse_mapping[frame.serial]
@@ -273,21 +286,23 @@ class TriggerSaveService:
             
             self._state = IdleState(self)
 
-    async def trigger(self, duration: float) -> Optional[TriggerEvent]:
+    async def trigger(self, duration: float, ts: float) -> Optional[TriggerEvent]:
         """
         Trigger saving video for the specified duration.
 
         :param self: The SaveService instance
         :param duration: The duration for which saving should be triggered (in seconds)
         :type duration: float
+        :param ts: Wall-clock timestamp of the loadcell change that caused this trigger
+        :type ts: float
         :return: An asyncio.Event that will be set when saving is finished, or None if extending an existing save
         :rtype: Optional[asyncio.Event]
         """
         if self._save_task is None:
             return None
-        
+
         async with self._state_lock:
-            return await self._state.trigger(duration)
+            return await self._state.trigger(duration, ts)
 
     async def _run_with_retries(self):
         while True:

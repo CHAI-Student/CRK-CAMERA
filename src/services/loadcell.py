@@ -18,9 +18,15 @@ class LoadcellService:
         self,
         sse_url: str,
         trigger_save_services: dict[int, TriggerSaveService],
+        submit_flush_timeout: float = 10.0,
     ):
         self.sse_url = sse_url
         self.trigger_save_services = trigger_save_services
+        # stop() 시 대기 중인 submit(POST /trigger) 태스크에 주는 완료 유예.
+        # stop 시점에는 stop_session이 모든 에피소드의 on_finish를 이미 set한
+        # 상태라 정상적으로는 수백 ms 안에 끝난다 — 상한은 모델 서버가 행일
+        # 때의 방어선일 뿐이다.
+        self.submit_flush_timeout = submit_flush_timeout
 
         self._loadcell_task = None
         self._loadcell_history = []
@@ -45,14 +51,25 @@ class LoadcellService:
             pass
         self._loadcell_task = None
 
-        # Cancel all pending event tasks
-        for task in self._event_tasks:
-            if not task.done():
-                task.cancel()
-
-        # Wait for all tasks to complete cancellation
+        # Flush pending submit tasks instead of cancelling them outright.
+        # An episode still recording when /recording/stop arrives has just
+        # been force-closed by stop_session (its on_finish is set), so its
+        # POST /trigger completes within ~100ms. Cancelling here used to
+        # kill that POST — the recording directory existed (counted into
+        # the edge watermark's expected_triggers) but its trigger never
+        # reached the model, stalling door-close settlement until timeout.
         if self._event_tasks:
-            await asyncio.gather(*self._event_tasks, return_exceptions=True)
+            done, pending = await asyncio.wait(
+                self._event_tasks, timeout=self.submit_flush_timeout
+            )
+            if pending:
+                logger.warning(
+                    f"Cancelling {len(pending)} submit task(s) still pending "
+                    f"after {self.submit_flush_timeout}s flush timeout"
+                )
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
 
         self._event_tasks.clear()
         logger.info("LoadcellService stopped")

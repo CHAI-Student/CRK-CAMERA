@@ -103,8 +103,11 @@ class LoadcellService:
         for zone in affected_zones:
             trigger_save_service = self.trigger_save_services.get(zone)
             if trigger_save_service:
+                # 4.0s post-roll: at the IO-BOARD's 0.8s loadcell cadence the
+                # model needs >=3 stable samples (stable_window=3, 2.4s) after
+                # the last change to form the final plateau; 3.0s left no margin.
                 trigger_event = await trigger_save_service.trigger(
-                    3.0, data["timestamp_float"]
+                    4.0, data["timestamp_float"]
                 )
                 # Both events must be present to proceed
                 if trigger_event is None:
@@ -129,10 +132,16 @@ class LoadcellService:
 
         await event.event.wait()
 
-        # Find the index of the first entry at or after (timestamp - 0.5)
+        # Find the index of the first entry at or after (timestamp - 4.0).
+        # The look-back is the model's pre-change baseline: it needs >=3
+        # stable samples (stable_window=3) to form the first plateau, which
+        # at the IO-BOARD's 0.8s loadcell cadence means 2.4s + transition
+        # margin. The previous 1s look-back held 8 samples at the old 0.12s
+        # cadence but only 1-2 at 0.8s, so the baseline plateau could never
+        # form and delta_weight came out 0 (CRK-model-HG issue #12).
         loadcells_index = bisect.bisect_left(
             self._loadcell_history,
-            timestamp - 1,
+            timestamp - 4.0,
             key=lambda x: x["timestamp_float"],
         )
 

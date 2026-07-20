@@ -73,7 +73,13 @@ async def lifespan(app: FastAPI):
     app.state.trigger_save_services = trigger_save_services
 
     loadcell_service = LoadcellService(
-        sse_url="http://localhost:8000/sse?streams=loadcells&filter_method=exponential&filter_alpha=0.8&threshold=5",
+        # filter_method=none: IO-BOARD가 sanitizer+5g 양자화를 거친 값을 주므로
+        # EMA가 불필요하고, 0.8s 폴링에서는 EMA(α=0.8) 정착 꼬리가 벽시계 ~2.4s로
+        # 늘어나 모델의 plateau 성립(연속 3샘플 std≤2.5)을 포스트롤 밖으로 밀어냄
+        # (CRK-model-HG issue #12: delta=0). 모델은 filtered_value를 우선 쓰기
+        # 때문에 여기 필터 선택이 곧 모델 입력이다. 양자화 경계 토글(delta=5.0)은
+        # threshold(>5)를 못 넘으므로 change 발화에도 안전.
+        sse_url="http://localhost:8000/sse?streams=loadcells&filter_method=none&threshold=5",
         trigger_save_services=trigger_save_services,
     )
     app.state.loadcell_service = loadcell_service

@@ -1,9 +1,16 @@
+"""연속(아카이브) 녹화 서비스.
+
+카메라 1대의 frame을 구독해 start부터 stop까지 끊김 없이 하나의 MP4
+(h264) 파일로 녹화한다. trigger 기반 구간 녹화(trigger_save)와 달리
+세션 전체를 보관하는 아카이브 용도이다.
+"""
+
 import asyncio
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from services.capture import CaptureFrame, CaptureService
 from utils.ffmpeg import ffmpeg_feed_data, ffmpeg_start, ffmpeg_stop
@@ -13,6 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 class SaveService:
+    """카메라 1대를 연속 녹화하는 서비스.
+
+    :param capture_service: 녹화할 카메라의 CaptureService
+    :param name: 파일명에 timestamp 뒤에 붙일 접미사
+    :param stop_timeout: stop 시 queue 소진을 기다리는 최대 시간 (초)
+    """
+
     def __init__(
         self,
         capture_service: CaptureService,
@@ -28,6 +42,11 @@ class SaveService:
         self._ffmpeg_process: Optional[asyncio.subprocess.Process] = None
 
     async def start(self, save_path: str):
+        """ffmpeg를 띄우고 녹화를 시작한다.
+
+        :param save_path: 녹화 파일이 저장될 디렉터리
+            (파일명은 <timestamp><name>.mp4)
+        """
         if self._save_task is not None:
             logger.warning("SaveService is already started")
             return
@@ -48,6 +67,11 @@ class SaveService:
         await self.capture_service.subscribe(self._queue)
 
     async def stop(self):
+        """녹화를 종료한다.
+
+        구독을 해지하고 queue를 shutdown한 뒤, stop_timeout 안에 남은
+        frame이 소진되지 않으면 태스크를 강제 취소한다.
+        """
         if self._save_task is None:
             logger.warning("SaveService is not running")
             return
@@ -67,19 +91,24 @@ class SaveService:
             self._save_task.cancel()
             try:
                 await self._save_task
-            except:
+            except asyncio.CancelledError:
                 pass
+            except Exception:
+                logger.exception("Error from cancelled save task")
         except Exception as e:
             logger.error(f"Error while stopping SaveService: {e}, cancelling task...")
             self._save_task.cancel()
             try:
                 await self._save_task
-            except:
+            except asyncio.CancelledError:
                 pass
+            except Exception:
+                logger.exception("Error from cancelled save task")
         finally:
             self._save_task = None
 
     async def _run(self):
+        """queue의 frame을 ffmpeg에 공급하고, 종료 시 ffmpeg를 닫는 본체 루프."""
         assert self._queue is not None
         assert self._ffmpeg_process is not None
         try:

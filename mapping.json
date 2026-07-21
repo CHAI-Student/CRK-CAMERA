@@ -5,7 +5,8 @@
       "index": 0
     },
     "mapping": {
-      "index": 0
+      "index": 0,
+      "role": "top"
     }
   },
   {
@@ -14,7 +15,9 @@
       "index": 0
     },
     "mapping": {
-      "index": 1
+      "index": 1,
+      "role": "side",
+      "zones": [1, 2, 3, 4, 5]
     }
   }
 ]

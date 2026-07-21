@@ -1,17 +1,27 @@
+"""frame 샘플링 서비스.
+
+지정한 카메라들의 frame을 구독해 각 frame을 개별 JPEG 파일로 저장한다
+(<save_path>/cam_<id>/<순번>.jpg). 학습 데이터 수집 등 영상이 아닌
+정지 이미지가 필요한 경우에 사용한다.
+"""
+
 import asyncio
-import contextlib
 import logging
-import os
 from pathlib import Path
 from typing import Optional
 
 from services.capture import CaptureFrame, CaptureService
-from utils.ffmpeg import ffmpeg_feed_data, ffmpeg_start, ffmpeg_stop
 
 logger = logging.getLogger(__name__)
 
 
 class SamplerService:
+    """카메라 frame을 구독해 JPEG 파일로 저장하는 샘플링 서비스.
+
+    :param capture_services: 논리 index별 CaptureService
+    :param stop_timeout: stop 시 queue 소진을 기다리는 최대 시간 (초)
+    """
+
     def __init__(
         self,
         capture_services: dict[int, CaptureService],
@@ -31,10 +41,10 @@ class SamplerService:
         self._lock = asyncio.Lock()
 
     async def start(self, save_path: str, cameras: Optional[list[int]] = None):
-        """
-        Start the save service.
+        """샘플링을 시작한다.
 
-        :param self: The SaveService instance
+        :param save_path: JPEG 파일이 저장될 상위 디렉터리 경로
+        :param cameras: 샘플링할 카메라의 논리 index 목록 (기본 [0, 1])
         """
         if cameras is None:
             cameras = [0, 1]
@@ -53,10 +63,11 @@ class SamplerService:
                     await cs.subscribe(self._queue)
 
     async def stop(self):
-        """
-        Stop the save service.
+        """샘플링을 종료한다.
 
-        :param self: The SaveService instance
+        구독을 해지하고 queue를 shutdown한 뒤, stop_timeout 안에 남은
+        frame이 소진되지 않으면 태스크를 강제 취소한다. 진행 중인 파일
+        저장 태스크들은 모두 완료를 기다린다.
         """
         async with self._lock:
             if self._sampling_task is None:
@@ -95,6 +106,7 @@ class SamplerService:
                 self._sampling_task = None
 
     async def _run_with_retries(self):
+        """_run을 감싸 예외 발생 시 1초 후 재시작한다."""
         while True:
             try:
                 await self._run()
@@ -106,9 +118,11 @@ class SamplerService:
                 await asyncio.sleep(1)
 
     async def _run(self):
+        """queue에서 frame을 꺼내 카메라별 순번을 붙여 파일 저장 태스크를 띄우는 본체 루프."""
         assert self._save_path is not None
         assert self._sampling_task is not None
         assert self._queue is not None
+        # 카메라별 frame 순번 카운터 (파일명에 사용)
         frame_numbers = {key: 0 for key in self.capture_services.keys()}
         while True:
             try:
@@ -124,6 +138,7 @@ class SamplerService:
             try:
                 camera_control = self.capture_services[key].control
                 width, height = camera_control.width, camera_control.height
+                # 파일 쓰기는 blocking이므로 스레드로 넘긴다
                 task = asyncio.create_task(asyncio.to_thread(_write_frame_to_file, self._save_path, key, frame.pixel_format, bytes(frame.data), frame_numbers.setdefault(key, 0), width, height))
                 self._saving_tasks.add(task)
                 task.add_done_callback(self._saving_tasks.discard)
@@ -131,12 +146,12 @@ class SamplerService:
             finally:
                 self._queue.task_done()
 
-async def is_running(proc):
-    with contextlib.suppress(asyncio.TimeoutError):
-        await asyncio.wait_for(proc.wait(), 1e-6)
-    return proc.returncode is None
 
 def _write_frame_to_file(save_path: Path, camera_id: int, pixel_format: str, data: bytes, index: int, width: int, height: int):
+    """frame 1장을 <save_path>/cam_<camera_id>/<index>.jpg 로 저장한다.
+
+    JPEG/MJPEG frame은 그대로 쓰고, YUYV frame은 JPEG로 변환해 저장한다.
+    """
     camera_path = save_path / f"cam_{camera_id}"
     camera_path.mkdir(parents=True, exist_ok=True)
     frame_path = camera_path / f"{index:06d}.jpg"
@@ -144,7 +159,7 @@ def _write_frame_to_file(save_path: Path, camera_id: int, pixel_format: str, dat
         with open(frame_path, "wb") as f:
             f.write(data)
     elif pixel_format == "YUYV":
-        # Convert YUYV to JPEG
+        # YUYV → JPEG 변환
         import cv2
         import numpy as np
         yuyv_image = np.frombuffer(data, dtype=np.uint8)
